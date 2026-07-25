@@ -1,0 +1,4 @@
+# Seriais Autorizados
+# Formato: ID|SERIAL|NOME|DATA_VALIDADE
+
+1|R9XN202NFGL|Van|3000-12-31
