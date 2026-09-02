@@ -1,0 +1,14 @@
+{
+  "versao": "1.0",
+  "ultima_atualizacao": "2026-09-02T10:00:00-03:00",
+  "seriais": [
+    {
+      "id": 1,
+      "serial": "9F4649B7F4052ABDBF6B7C32CB201C63",
+      "nome": "A14",
+      "validade": "3000-12-31",
+      "ativo": true,
+      "observacao": "Dispositivo principal"
+    },
+  ]
+}
