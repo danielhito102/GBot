@@ -9,14 +9,14 @@
       "validade": "3000-12-31",
       "ativo": true,
       "observacao": "Dispositivo Niel"
-      {
-      "id": 2,
+      {                              // ← ERRO: chave extra
+      "id": 2,                       // ← ERRO: objeto dentro de outro
       "serial": "138254a5af32e916",
       "nome": "A15",
       "validade": "3000-12-31",
       "ativo": true,
       "observacao": "Dispositivo Noemi"
-    },
+    },                               // ← ERRO: fechamento errado
     },
     
   ]
