@@ -39,6 +39,14 @@
       "data_registro": "2026-09-03T14:20:41.407Z",
       "ultimo_acesso": "2026-09-03T14:20:41.407Z",
       "ativo": true
+    },
+    {
+      "serial": "TMP_7DCA3FB78CC64307",
+      "modelo": "SM-A145M",
+      "ip": "192.168.0.107",
+      "data_registro": "2026-09-03T14:21:18.689Z",
+      "ultimo_acesso": "2026-09-03T14:21:18.690Z",
+      "ativo": true
     }
   ]
 }
