@@ -10,7 +10,7 @@
 // CONFIGURAÇÕES - TOKEN ATUALIZADO
 // ============================================
 
-var A = "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";
+var A = "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";
 var B = "danielhito102";
 var C = "GBot";
 
