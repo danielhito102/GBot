@@ -1,6 +1,6 @@
 // ============================================
 // 🚗 GBot V1 - By Nz
-// COM REVOGAÇÃO DINÂMICA CORRIGIDA
+// COM MONITORAMENTO CONTÍNUO DE AUTORIZAÇÃO
 // ============================================
 
 "ui";
@@ -9,8 +9,7 @@
 // CONFIGURAÇÕES
 // ============================================
 
-// O token será injetado pelo Launcher
-// var A = "github_pat_..."; // <-- INJETADO
+var A = "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";
 var B = "danielhito102";
 var C = "GBot";
 
@@ -31,15 +30,14 @@ var K = {
     a: null, b: null, c: null, d: null, e: null, f: null,
     g: null, h: null, i: false, j: false, k: null, l: null,
     m: null, n: [], o: null, p: [], q: null, r: false,
-    monitorAtivo: false, verificando: false, ultimaVerif: null,
-    revogado: false, motivoRevogacao: null
+    monitorAtivo: false, verificando: false, ultimaVerif: null
 };
 
 // ============================================
-// INTERVALO DE MONITORAMENTO (15 SEGUNDOS - MAIS RÁPIDO)
+// INTERVALO DE MONITORAMENTO (30 SEGUNDOS)
 // ============================================
 
-var MONITOR_INTERVALO = 15000;
+var MONITOR_INTERVALO = 30000;
 
 // ============================================
 // FUNÇÕES
@@ -188,27 +186,15 @@ var L = {
     _8: function(u, cb) {
         var h = { 'User-Agent': 'GBot/1.0', 'Accept': 'application/vnd.github.v3+json', 'Authorization': 'token ' + A };
         L._1(u, 'GET', null, h, function(e, r) {
-            if (e || !r || r.statusCode === 404 || r.statusCode !== 200) {
-                cb(null, null);
-                return;
-            }
+            if (e || !r || r.statusCode === 404 || r.statusCode !== 200) { cb(null, null); return; }
             try {
                 var d = r.body.json();
-                if (!d || !d.content) {
-                    cb(null, null);
-                    return;
-                }
+                if (!d || !d.content) { cb(null, null); return; }
                 var dec = android.util.Base64.decode(d.content, android.util.Base64.DEFAULT);
                 var js = new java.lang.String(dec, "UTF-8");
                 var s = L._7(js);
-                if (s && s.length > 0) {
-                    cb(d, s);
-                } else {
-                    cb(null, null);
-                }
-            } catch(e) {
-                cb(null, null);
-            }
+                if (s && s.length > 0) { cb(d, s); } else { cb(null, null); }
+            } catch(e) { cb(null, null); }
         });
     },
     
@@ -315,22 +301,18 @@ var L = {
                     }
                 }
                 
-                // Se estava autorizado e agora não está mais -> REVOGA!
+                // Se estava autorizado e agora não está mais
                 if (K.i && !found) {
                     L._("🚫 SERIAL REVOGADO! Acesso removido.", 'revoke');
-                    K.revogado = true;
-                    K.motivoRevogacao = "Serial removido da lista de autorizados";
-                    L._25(K.motivoRevogacao);
+                    L._25("Serial removido da lista de autorizados");
                     if (cb) cb(false);
                     return;
                 }
                 
-                // Se não estava autorizado e agora está -> AUTORIZA!
+                // Se não estava autorizado e agora está
                 if (!K.i && found) {
                     L._("✅ Serial autorizado novamente!", 'ok');
                     K.i = true;
-                    K.revogado = false;
-                    K.motivoRevogacao = null;
                     K.k = userData.nome;
                     K.l = userData.validade;
                     K.m = K.l ? L._6(K.l) : null;
@@ -343,6 +325,7 @@ var L = {
                 
                 // Se continua autorizado, atualiza dados
                 if (K.i && found && userData) {
+                    // Verifica se mudou nome ou validade
                     var mudou = false;
                     if (K.k !== userData.nome) {
                         K.k = userData.nome;
@@ -361,6 +344,12 @@ var L = {
                     return;
                 }
                 
+                // Nunca foi autorizado
+                if (!K.i && !found) {
+                    if (cb) cb(false);
+                    return;
+                }
+                
                 if (cb) cb(found);
             } catch(e) {
                 L._("Erro na verificação: " + e.message, 'err');
@@ -370,16 +359,12 @@ var L = {
     },
     
     // ============================================
-    // REVOGAÇÃO DE ACESSO - CORRIGIDA
+    // REVOGAÇÃO DE ACESSO
     // ============================================
     
     _25: function(motivo) {
         L._("🚫 REVOGANDO ACESSO!", 'revoke');
         L._("📝 Motivo: " + motivo, 'revoke');
-        
-        // Marca como revogado
-        K.revogado = true;
-        K.motivoRevogacao = motivo;
         
         // Revoga autorização
         K.i = false;
@@ -413,9 +398,6 @@ var L = {
             "Contate o administrador para obter acesso novamente.");
         
         L._("✅ Revogação concluída", 'revoke');
-        
-        // Para o monitoramento
-        K.monitorAtivo = false;
     },
     
     // ============================================
@@ -432,8 +414,6 @@ var L = {
         L._("⏰ Intervalo: " + (MONITOR_INTERVALO / 1000) + " segundos", 'monitor');
         
         K.monitorAtivo = true;
-        K.revogado = false;
-        K.motivoRevogacao = null;
         K.ultimaVerif = new Date().toLocaleString('pt-BR');
         
         // Primeira verificação imediata
@@ -442,36 +422,30 @@ var L = {
                 L._("✅ Verificação inicial: Autorizado", 'monitor');
             } else {
                 L._("⚠️ Verificação inicial: Não autorizado", 'monitor');
-                if (K.revogado) {
-                    L._("🚫 Acesso revogado na verificação inicial", 'revoke');
-                }
             }
             L._13();
         });
         
         // Thread de monitoramento
         threads.start(function() {
-            while (K.monitorAtivo && !K.revogado) {
+            while (K.monitorAtivo) {
                 // Aguarda o intervalo
                 for (var i = 0; i < MONITOR_INTERVALO / 1000; i++) {
-                    if (!K.monitorAtivo || K.revogado) break;
+                    if (!K.monitorAtivo) break;
                     sleep(1000);
                 }
-                if (!K.monitorAtivo || K.revogado) break;
+                if (!K.monitorAtivo) break;
                 
                 // Verifica autorização
                 L._("🔄 Verificação periódica...", 'monitor');
                 L._24(function(resultado) {
                     if (resultado) {
-                        if (K.i && !K.revogado) {
+                        if (K.i) {
                             L._("✅ Dispositivo ainda autorizado", 'monitor');
                         }
                     } else {
-                        if (K.i && !K.revogado) {
+                        if (K.i) {
                             // Se perdeu autorização, já foi tratado no _24
-                            L._("⚠️ Dispositivo perdeu autorização", 'monitor');
-                        } else if (K.revogado) {
-                            L._("🚫 Acesso revogado, monitor encerrado", 'revoke');
                         } else {
                             L._("⚠️ Dispositivo não autorizado", 'monitor');
                         }
@@ -520,11 +494,7 @@ var L = {
                 L._8(D, function(d2, c2) {
                     ui.b1.setEnabled(true);
                     ui.b1.setText("Autorizar");
-                    if (!c2) {
-                        ui.s1.setText("Falha!");
-                        toast("Falha!");
-                        return;
-                    }
+                    if (!c2) { ui.s1.setText("Falha!"); toast("Falha!"); return; }
                     try {
                         var json = c2.trim();
                         if (json.charCodeAt(0) === 0xFEFF) json = json.substring(1);
@@ -544,8 +514,6 @@ var L = {
                                     K.l = item.validade || (item.length >= 4 ? item[3] : null);
                                     K.m = K.l ? L._6(K.l) : null;
                                     K.i = true;
-                                    K.revogado = false;
-                                    K.motivoRevogacao = null;
                                     L._("Autorizado: " + K.k, 'ok');
                                     break;
                                 }
@@ -561,539 +529,138 @@ var L = {
                                 L._26();
                             }
                         } else {
-                            ui.s1.setText("Nao autorizado!");
-                            toast("Nao autorizado!");
+                            ui.s1.setText("❌ NÃO AUTORIZADO!");
+                            ui.s1.setTextColor(colors.parseColor("#ff4444"));
+                            toast("❌ Não autorizado!");
+                            L._("NÃO AUTORIZADO!", 'err');
+                            dialogs.alert("Acesso Negado", 
+                                "❌ Seu dispositivo não está autorizado!\n\n" +
+                                "Serial: " + K.g + "\n\n" +
+                                "Contate o administrador para autorização.");
                         }
                     } catch(e) {
                         ui.s1.setText("Erro!");
-                        toast("Erro!");
+                        L._("Erro: " + e.message, 'err');
                     }
                 });
             });
-        });
-    },
-    
-    // ============================================
-    // DEMAIS FUNÇÕES
-    // ============================================
-    
-    _14: function(t) {
-        if (!t) return false;
-        try {
-            var p = t.split('.');
-            if (p.length === 3) {
-                var d = android.util.Base64.decode(p[1], android.util.Base64.DEFAULT);
-                var j = new java.lang.String(d, "UTF-8");
-                var data = JSON.parse(j);
-                if (data.exp) return new Date().getTime() < data.exp * 1000;
-                return true;
-            }
-        } catch(e) {}
-        return false;
-    },
-    
-    _15: function(c) {
-        // Verifica se ainda está autorizado
-        if (!K.i || K.revogado) {
-            L._("❌ Dispositivo não autorizado ou revogado!", 'err');
-            toast("Dispositivo não autorizado!");
-            return;
-        }
-        K.o = c;
-        K.b = "Bearer " + c.token;
-        K.j = true;
-        ui.b2.setText("Logout");
-        ui.s1.setText("Conta: " + c.nome);
-        L._("Conta: " + c.nome, 'user');
-        toast(c.nome);
-        L._13();
-    },
-    
-    _16: function(idx) {
-        if (idx < 0 || idx >= K.n.length) return;
-        if (!K.i || K.revogado) {
-            L._("❌ Dispositivo não autorizado ou revogado!", 'err');
-            toast("Dispositivo não autorizado!");
-            return;
-        }
-        var c = K.n[idx];
-        if (!L._14(c.token)) {
-            if (c.refresh) {
-                var p = { device_token: J, base_path: "file:///data/user/0/com.by4java.girossmototaxista/files/" };
-                var h = { 'User-Agent': "okhttp/4.9.2", 'Accept': "application/json", 'Content-Type': "application/json", 'authorization': c.refresh };
-                L._1(H, 'POST', p, h, function(e, r) {
-                    if (e || r.statusCode !== 200) {
-                        dialogs.rawInput("Senha da conta " + c.nome + ":", "", function(s) { if (s) L._18(c.cpf, s); });
-                        return;
-                    }
-                    try { var d = r.body.json(); var t = d.token || d.access_token || null; if (t) { t = t.replace('Bearer ', '').trim(); c.token = t; L._15(c); } } catch(e) {}
-                });
-            } else {
-                dialogs.rawInput("Senha da conta " + c.nome + ":", "", function(s) { if (s) L._18(c.cpf, s); });
-            }
-            return;
-        }
-        L._15(c);
-    },
-    
-    _17: function() {
-        if (K.revogado) {
-            toast("🚫 Acesso revogado!");
-            return;
-        }
-        if (K.n.length === 0) { toast("Nenhuma conta"); return; }
-        var items = [];
-        for (var i = 0; i < K.n.length; i++) {
-            var c = K.n[i];
-            var mask = c.cpf.substring(0, 3) + ".***.***-" + c.cpf.substring(c.cpf.length - 2);
-            var status = L._14(c.token) ? " OK" : " EXP";
-            var ativo = K.o && K.o.cpf === c.cpf ? " ATIVO" : "";
-            items.push(c.nome + " (" + mask + ")" + status + ativo);
-        }
-        dialogs.build({
-            title: "Contas (" + K.n.length + ")",
-            items: items,
-            positive: "Selecionar",
-            negative: "Cancelar",
-            neutral: "Remover Todas"
-        }).on("item", function(i) { L._16(i); }).on("neutral", function() {
-            if (dialogs.confirm("Remover Todas", "Remover todas?")) {
-                K.n = []; K.o = null; K.j = false; K.b = null;
-                ui.b2.setText("Login"); toast("Removidas!");
-            }
-        }).show();
-    },
-    
-    _18: function(cpf, senha) {
-        if (!K.i || K.revogado) { toast("Autorize o dispositivo!"); return; }
-        if (K.m !== null && K.m < 0) { toast("Serial expirado!"); return; }
-        ui.b2.setEnabled(false);
-        ui.b2.setText("Aguarde...");
-        ui.s1.setText("Logando...");
-        var p = {
-            document: cpf, password: senha, device_type: "android",
-            device_id: "fe1007a9fc0c3895", device_token: J,
-            app_version: "112.117.0", refresh_token: "", detected_apps: []
-        };
-        var h = { 'User-Agent': "okhttp/4.9.2", 'Accept': "application/json", 'Content-Type': "application/json" };
-        L._1(G, 'POST', p, h, function(e, r) {
-            ui.b2.setEnabled(true);
-            ui.b2.setText("Login");
-            if (e || r.statusCode > 201) { ui.s1.setText("Login falhou!"); toast("Login falhou!"); return; }
-            try {
-                var d = r.body.json();
-                var t = d.access_token || d.token;
-                var rt = d.refresh_token || null;
-                if (t) {
-                    t = t.replace('Bearer ', '').trim();
-                    var nome = d.first_name || d.name || "Usuario";
-                    var exists = false;
-                    for (var i = 0; i < K.n.length; i++) {
-                        if (K.n[i].cpf === cpf) {
-                            K.n[i].token = t;
-                            K.n[i].refresh = rt || K.n[i].refresh;
-                            K.n[i].nome = nome;
-                            K.o = K.n[i];
-                            exists = true;
-                            break;
-                        }
-                    }
-                    if (!exists) {
-                        K.n.push({ cpf: cpf, nome: nome, token: t, refresh: rt });
-                        K.o = K.n[K.n.length - 1];
-                    }
-                    K.b = "Bearer " + t;
-                    K.j = true;
-                    ui.b2.setText("Logout");
-                    ui.s1.setText("OK: " + nome);
-                    L._("Login: " + nome, 'ok');
-                    toast("Login!");
-                    L._13();
-                } else {
-                    ui.s1.setText("Token nao encontrado!");
-                    toast("Token!");
-                }
-            } catch(e) {
-                ui.s1.setText("Erro!");
-                toast("Erro!");
-            }
-        });
-    },
-    
-    _19: function() {
-        if (K.revogado) {
-            toast("🚫 Acesso revogado!");
-            return;
-        }
-        if (!K.i) { toast("Autorize o dispositivo!"); return; }
-        if (K.m !== null && K.m < 0) { toast("Serial expirado!"); return; }
-        if (K.j) {
-            dialogs.build({
-                title: "Conta Atual",
-                items: ["Logout", "Trocar Conta", "Cancelar"],
-                positive: "OK",
-                negative: "Cancelar"
-            }).on("item", function(i) {
-                if (i === 0) {
-                    K.j = false; K.b = null; K.o = null;
-                    ui.b2.setText("Login");
-                    ui.s1.setText("Logout");
-                    toast("Logout!");
-                } else if (i === 1) {
-                    L._17();
-                }
-            }).show();
-            return;
-        }
-        if (K.n.length > 0) {
-            dialogs.build({
-                title: K.n.length + " contas",
-                items: ["Usar Conta Existente", "Nova Conta", "Cancelar"],
-                positive: "OK",
-                negative: "Cancelar"
-            }).on("item", function(i) {
-                if (i === 0) L._17();
-                else if (i === 1) L._20();
-            }).show();
-        } else {
-            L._20();
-        }
-    },
-    
-    _20: function() {
-        dialogs.rawInput("CPF:", "", function(c) {
-            if (!c || c.replace(/\D/g, '').length < 11) { toast("CPF invalido!"); return; }
-            c = c.replace(/\D/g, '');
-            dialogs.rawInput("Senha:", "", function(s) {
-                if (!s) { toast("Senha obrigatoria!"); return; }
-                L._18(c, s);
-            });
-        });
-    },
-    
-    _21: function() {
-        if (K.revogado) {
-            toast("🚫 Acesso revogado!");
-            return;
-        }
-        if (!K.i) { toast("Dispositivo nao autorizado!"); return; }
-        if (!K.a) { toast("Defina o Trip ID!"); return; }
-        if (!K.b) { toast("Fac.a login!"); return; }
-        if (!K.e) { toast("Defina a coordenada!"); return; }
-        ui.b4.setEnabled(false);
-        ui.b4.setText("Aguarde...");
-        ui.s1.setText("Buscando...");
-        var url = I + K.a;
-        var h = {
-            'User-Agent': "okhttp/4.9.2",
-            'Accept': "application/json",
-            'Content-Type': "application/json",
-            'authorization': K.b
-        };
-        var p1 = { status: "ARRIVED", cordination: K.e, mock: false, destination_id: 0 };
-        L._1(url, 'PUT', p1, h, function(e, r) {
-            if (e || r.statusCode !== 200) {
-                ui.b4.setEnabled(true);
-                ui.b4.setText("Buscar");
-                ui.s1.setText("Falha!");
-                L._("Falha ARRIVED: " + (r ? r.statusCode : e), 'err');
-                toast("Falha!");
-                return;
-            }
-            try {
-                var d = r.body.json();
-                var dist = d.distance || d.UserRequest?.distance || d.data?.distance;
-                if (dist) {
-                    K.f = dist;
-                    L._("Distance: " + dist, 'ok');
-                    var p2 = { status: "ARRIVED", cordination: [parseFloat(dist)], mock: false, destination_id: 0 };
-                    L._1(url, 'PUT', p2, h, function(e2, r2) {
-                        ui.b4.setEnabled(true);
-                        ui.b4.setText("Buscar");
-                        if (e2 || r2.statusCode !== 200) {
-                            ui.s1.setText("Falha!");
-                            L._("Falha 2o ARRIVED: " + (r2 ? r2.statusCode : e2), 'err');
-                            toast("Falha!");
-                            return;
-                        }
-                        try {
-                            var d2 = r2.body.json();
-                            var dest = d2.userRequestDestinations || d2.UserRequest?.userRequestDestinations || [];
-                            if (dest.length > 0) {
-                                K.c = dest[0].id;
-                                L._("Cliente ID: " + K.c, 'ok');
-                                ui.s1.setText("Cliente encontrado!");
-                                toast("Cliente!");
-                                if (dest.length > 1) {
-                                    K.d = dest[1].id;
-                                    L._("Cliente 2: " + K.d, 'info');
-                                }
-                            } else {
-                                ui.s1.setText("Nenhum destino!");
-                                toast("Nenhum destino!");
-                            }
-                        } catch(e) {
-                            ui.s1.setText("Erro!");
-                            toast("Erro!");
-                        }
-                    });
-                } else {
-                    ui.b4.setEnabled(true);
-                    ui.b4.setText("Buscar");
-                    ui.s1.setText("Distance nao encontrado!");
-                    toast("Distance!");
-                }
-            } catch(e) {
-                ui.b4.setEnabled(true);
-                ui.b4.setText("Buscar");
-                ui.s1.setText("Erro!");
-                toast("Erro!");
-            }
-        });
-    },
-    
-    _22: function() {
-        if (K.revogado) {
-            toast("🚫 Acesso revogado!");
-            return;
-        }
-        if (!K.i) { toast("Dispositivo nao autorizado!"); return; }
-        if (!K.a) { toast("Defina o Trip ID!"); return; }
-        if (!K.b) { toast("Fac.a login!"); return; }
-        if (!K.c) { toast("Busque o cliente!"); return; }
-        if (!K.f) { toast("Sem distance!"); return; }
-        ui.b5.setEnabled(false);
-        ui.b5.setText("Aguarde...");
-        ui.s1.setText("Finalizando...");
-        var url = I + K.a;
-        var h = {
-            'User-Agent': "okhttp/4.9.2",
-            'Accept': "application/json",
-            'Content-Type': "application/json",
-            'authorization': K.b
-        };
-        var coord = [parseFloat(K.f)];
-        var p1 = { status: "COMPLETED", cordination: coord, mock: false, destination_id: parseInt(K.c) };
-        L._1(url, 'PUT', p1, h, function(e, r) {
-            ui.b5.setEnabled(true);
-            ui.b5.setText("Finalizar");
-            if (e || r.statusCode !== 200) {
-                ui.s1.setText("Falha!");
-                L._("Falha finalizacao: " + (r ? r.statusCode : e), 'err');
-                toast("Falha!");
-                return;
-            }
-            L._("Corrida finalizada", 'ok');
-            ui.s1.setText("Corrida finalizada!");
-            toast("Corrida finalizada!");
-            if (K.d) {
-                var p2 = { status: "COMPLETED", cordination: coord, mock: false, destination_id: parseInt(K.d) };
-                L._1(url, 'PUT', p2, h, function() { L._("2a finalizacao OK", 'ok'); });
-            }
-            K.a = null; K.c = null; K.d = null; K.f = null;
-            ui.a3.setText("");
         });
     },
     
     _13: function() {
         try {
-            var nome = K.k || "N/A";
-            var val = K.l ? L._5(K.l) : "N/A";
-            var dias = K.m !== null ? K.m : "N/A";
-            
-            // Se revogado, mostra vermelho
-            if (K.revogado) {
-                ui.a4.setText("SERIAL: " + K.g + " 🚫 REVOGADO");
-                ui.a4.setTextColor(colors.parseColor("#ff4444"));
-                ui.a8.setText("REVOGADO");
-                ui.a8.setTextColor(colors.parseColor("#ff4444"));
-                ui.s1.setText("🚫 ACESSO REVOGADO!");
-                ui.s1.setTextColor(colors.parseColor("#ff4444"));
-                return;
+            var status = K.i ? "✅ AUTORIZADO" : "❌ NÃO AUTORIZADO";
+            var cor = K.i ? "#4CAF50" : "#ff4444";
+            var info = "";
+            if (K.i) {
+                info = "👤 " + K.k;
+                if (K.l) info += " | 📅 " + L._5(K.l);
+                if (K.m !== null) info += " | ⏳ " + (K.m > 0 ? K.m + " dias" : (K.m === 0 ? "Expira hoje" : "Expirado"));
+                if (K.j) info += " | 🔐 Logado";
+                if (K.monitorAtivo) info += " | 📡 Monitor Ativo";
             }
-            
-            ui.a4.setText("SERIAL: " + K.g);
-            ui.a4.setTextColor(K.i ? colors.parseColor("#00ff00") : colors.parseColor("#ff4444"));
-            ui.a5.setText("USER: " + nome);
-            ui.a6.setText("VALIDADE: " + val);
-            
-            if (dias !== "N/A" && dias < 0) {
-                ui.a7.setText("EXPIRADO!");
-                ui.a7.setTextColor(colors.parseColor("#ff4444"));
-            } else if (dias !== "N/A" && dias <= 7) {
-                ui.a7.setText(dias + " dias restantes");
-                ui.a7.setTextColor(colors.parseColor("#ffaa00"));
-            } else if (dias !== "N/A") {
-                ui.a7.setText(dias + " dias");
-                ui.a7.setTextColor(colors.parseColor("#00ff00"));
-            } else {
-                ui.a7.setText("Sem validade");
-                ui.a7.setTextColor(colors.parseColor("#caf0f8"));
-            }
-            
-            ui.a8.setText(K.i ? "ATIVO" : "INATIVO");
-            ui.a8.setTextColor(K.i ? colors.parseColor("#00ff00") : colors.parseColor("#ff4444"));
-            ui.a9.setText("CONTAS: " + K.n.length);
-            
-            if (K.monitorAtivo && !K.revogado) {
-                ui.s1.setText(ui.s1.text() + " | 🔄 Monitor ativo");
-            }
+            ui.s1.setText(status + " - " + info);
+            ui.s1.setTextColor(colors.parseColor(cor));
         } catch(e) {}
     },
     
-    _23: function() {
-        if (!K.g || K.g === "N/A") { toast("Nenhum serial!"); return; }
-        try {
-            var cb = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
-            cb.setPrimaryClip(android.content.ClipData.newPlainText("GBot Serial", K.g));
-            toast("Serial copiado!");
-        } catch(e) { toast("Erro ao copiar!"); }
-    },
+    // ============================================
+    // INTERFACE DO USUÁRIO
+    // ============================================
     
     _28: function() {
-        if (dialogs.confirm("Sair", "Deseja sair?")) {
-            L._("👋 Saindo...", 'info');
-            K.monitorAtivo = false;
-            setTimeout(function() { exit(); }, 500);
-        }
+        ui.layout(
+            <vertical padding="16">
+                <vertical bg="#f5f5f5" padding="12" margin="0 0 16 0" radius="8">
+                    <text id="s1" text="⚠️ Clique em Autorizar" textColor="#333" textSize="16sp" gravity="center" />
+                </vertical>
+                
+                <horizontal gravity="center" margin="0 0 16 0">
+                    <button id="b1" text="Autorizar" w="auto" style="Widget.AppCompat.Button.Colored" />
+                    <button id="b2" text="Login" w="auto" style="Widget.AppCompat.Button.Colored" margin="8 0 0 0" />
+                    <button id="b3" text="Testar" w="auto" style="Widget.AppCompat.Button.Colored" margin="8 0 0 0" />
+                </horizontal>
+                
+                <horizontal gravity="center" margin="0 0 16 0">
+                    <button id="b4" text="Iniciar Monitor" w="auto" style="Widget.AppCompat.Button.Colored" />
+                    <button id="b5" text="Parar Monitor" w="auto" style="Widget.AppCompat.Button.Colored" margin="8 0 0 0" />
+                </horizontal>
+                
+                <horizontal gravity="center" margin="0 0 16 0">
+                    <button id="b6" text="Limpar Log" w="auto" style="Widget.AppCompat.Button.Colored" />
+                </horizontal>
+                
+                <vertical id="a2" h="200" bg="#1e1e1e" padding="8" radius="4" margin="0 0 16 0">
+                    <text id="a1" text="📋 Logs do sistema..." textColor="#00ff00" textSize="12sp" />
+                </vertical>
+            </vertical>
+        );
+        
+        // ============================================
+        // EVENTOS DOS BOTÕES
+        // ============================================
+        
+        ui.b1.on("click", function() {
+            L._12();
+        });
+        
+        ui.b2.on("click", function() {
+            if (!K.i) {
+                toast("❌ Autorize o dispositivo primeiro!");
+                return;
+            }
+            // Função de login (simplificada)
+            dialogs.rawInput("Login", "Digite seu usuário:", "", function(u) {
+                if (u === null || u.trim() === "") return;
+                dialogs.rawInput("Login", "Digite sua senha:", "", function(s) {
+                    if (s === null || s.trim() === "") return;
+                    K.j = true;
+                    ui.b2.setText("Logout");
+                    L._("✅ Login realizado: " + u, 'ok');
+                    L._13();
+                    toast("✅ Login OK!");
+                });
+            });
+        });
+        
+        ui.b3.on("click", function() {
+            L._("🔍 Teste manual de autorização...", 'test');
+            L._24(function(resultado) {
+                if (resultado) {
+                    toast("✅ Autorizado!");
+                } else {
+                    toast("❌ Não autorizado!");
+                }
+                L._13();
+            });
+        });
+        
+        ui.b4.on("click", function() {
+            if (!K.i) {
+                toast("❌ Autorize o dispositivo primeiro!");
+                return;
+            }
+            L._26();
+        });
+        
+        ui.b5.on("click", function() {
+            L._27();
+        });
+        
+        ui.b6.on("click", function() {
+            ui.a1.setText("");
+            K.p = [];
+            L._("🧹 Log limpo!", 'warn');
+        });
     }
 };
 
 // ============================================
-// INTERFACE
+// INÍCIO
 // ============================================
 
-ui.layout(
-    <vertical bg="#1a1a2e" padding="8">
-        <text text="GBot V1" textSize="18" textColor="#00b4d8" textStyle="bold" gravity="center"/>
-        <text text="Finalizador Giross - Revogação Dinâmica" textSize="10" textColor="#90e0ef" gravity="center" marginBottom="6"/>
-        
-        <frame bg="#16213e" radius="8" padding="8" marginBottom="6">
-            <vertical>
-                <horizontal gravity="center" marginBottom="4">
-                    <text id="a4" text="SERIAL: Carregando..." textSize="11" textColor="#ffdd00" layout_weight="1" gravity="center"/>
-                    <button id="b6" text="COPY" bg="#2a2a4a" textColor="#ffffff" w="30" h="30" marginLeft="4" textSize="11"/>
-                </horizontal>
-                <text id="a5" text="USER: N/A" textSize="12" textColor="#caf0f8" gravity="center"/>
-                <text id="a6" text="VALIDADE: N/A" textSize="10" textColor="#caf0f8" gravity="center"/>
-                <text id="a7" text="DIAS: Carregando..." textSize="10" textColor="#caf0f8" gravity="center"/>
-                <horizontal gravity="center" marginTop="4">
-                    <text id="a8" text="AGUARDANDO..." textSize="11" textColor="#ffaa00" layout_weight="1" gravity="center"/>
-                    <text id="a9" text="CONTAS: 0" textSize="10" textColor="#caf0f8" marginLeft="8" gravity="center"/>
-                </horizontal>
-            </vertical>
-        </frame>
-        
-        <frame bg="#0a0a2a" radius="6" padding="6" marginBottom="6">
-            <text id="s1" text="Clique em Autorizar" textSize="10" textColor="#caf0f8" gravity="center"/>
-        </frame>
-        
-        <horizontal marginBottom="4">
-            <button id="b1" text="Autorizar" bg="#0077b6" textColor="#ffffff" layout_weight="0.33" marginRight="2"/>
-            <button id="b2" text="Login" bg="#0077b6" textColor="#ffffff" layout_weight="0.33" marginLeft="2" marginRight="2"/>
-            <button id="b3" text="Contas" bg="#2a2a4a" textColor="#ffffff" layout_weight="0.33" marginLeft="2"/>
-        </horizontal>
-        
-        <horizontal marginBottom="4">
-            <input id="a3" hint="Trip ID" textSize="10" layout_weight="0.5" bg="#2a2a4a" textColor="#ffffff" radius="4" padding="4" marginRight="2"/>
-            <input id="b7" hint="lat, lng" textSize="10" layout_weight="0.5" bg="#2a2a4a" textColor="#ffffff" radius="4" padding="4" marginLeft="2"/>
-        </horizontal>
-        
-        <horizontal marginBottom="4">
-            <button id="b8" text="Trip" bg="#2a2a4a" textColor="#ffffff" layout_weight="0.2" marginRight="2"/>
-            <button id="b9" text="Coord" bg="#2a2a4a" textColor="#ffffff" layout_weight="0.2" marginLeft="2" marginRight="2"/>
-            <button id="b4" text="Buscar" bg="#0077b6" textColor="#ffffff" layout_weight="0.2" marginLeft="2" marginRight="2"/>
-            <button id="b5" text="Finalizar" bg="#d62828" textColor="#ffffff" layout_weight="0.2" marginLeft="2"/>
-        </horizontal>
-        
-        <frame layout_weight="1" bg="#0a0a1a" radius="6" padding="4">
-            <vertical>
-                <text text="Historico" textSize="8" textColor="#888" marginBottom="2"/>
-                <scroll id="a2">
-                    <text id="a1" text="Aguardando...\n" textSize="7" textColor="#666" lineSpacing="1.5"/>
-                </scroll>
-            </vertical>
-        </frame>
-        
-        <button id="b10" text="Sair" bg="#6c757d" textColor="#ffffff" marginTop="4"/>
-    </vertical>
-);
-
-// ============================================
-// EVENTOS
-// ============================================
-
-ui.b1.click(function() { L._12(); });
-ui.b2.click(function() { L._19(); });
-ui.b3.click(function() { L._17(); });
-ui.b6.click(function() { L._23(); });
-
-ui.b8.click(function() {
-    dialogs.rawInput("Trip ID:", ui.a3.text(), function(id) {
-        if (id) {
-            K.a = id;
-            ui.a3.setText(id);
-            ui.s1.setText("Trip: " + id);
-            L._("Trip: " + id, 'info');
-            toast("Trip: " + id);
-        }
-    });
-});
-
-ui.b9.click(function() {
-    dialogs.rawInput("Coord (lat, lng):", ui.b7.text(), function(c) {
-        if (c) {
-            var p = c.split(',');
-            if (p.length === 2) {
-                var lat = parseFloat(p[0].trim());
-                var lng = parseFloat(p[1].trim());
-                if (!isNaN(lat) && !isNaN(lng)) {
-                    K.e = [lat, lng];
-                    ui.b7.setText(c);
-                    ui.s1.setText("Coord definida");
-                    L._("Coord definida", 'info');
-                    toast("Coord definida!");
-                } else {
-                    toast("Coord invalida!");
-                }
-            } else {
-                toast("Use: lat, lng");
-            }
-        }
-    });
-});
-
-ui.b4.click(function() { L._21(); });
-ui.b5.click(function() { L._22(); });
-
-ui.b10.click(function() { L._28(); });
-
-// ============================================
-// INICIALIZAÇÃO
-// ============================================
-
-try {
-    activity.getWindow().setFlags(
-        android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,
-        android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN
-    );
-} catch(e) {}
-
-try { device.keepScreenOn(); } catch(e) {}
-
-K.g = L._2();
-ui.a4.setText("SERIAL: " + K.g);
-ui.s1.setText("Clique em Autorizar");
-
-L._("GBot V1 - By Nz iniciado", 'info');
-L._("Serial: " + K.g, 'info');
-
-L._10(function(ok) {
-    if (ok) {
-        L._("GitHub OK!", 'ok');
-    } else {
-        L._("GitHub: Falha!", 'err');
-    }
-});
-
-toast("GBot V1 - By Nz");
+L._28();
+L._("🚗 GBot V1 Iniciado!", 'info');
+L._("📡 Monitoramento contínuo integrado", 'info');
+L._("🔑 Token configurado", 'info');
+L._("💡 Clique em 'Autorizar' para ativar", 'info');
