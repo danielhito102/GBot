@@ -9,7 +9,7 @@
 // CONFIGURAÇÕES
 // ============================================
 
-var A = "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";
+var A = "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";
 var B = "danielhito102";
 var C = "GBot";
 
