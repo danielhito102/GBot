@@ -1,1 +1,13 @@
-
+{
+  "devices": [
+    {
+      "serial": "F82DD2EE4BCA8D4C",
+      "serialOriginal": "f82dd2ee4bca8d4c",
+      "modelo": "SM-A145M",
+      "ip": "192.168.0.107",
+      "data_registro": "2026-09-03T14:42:00.084Z",
+      "ultimo_acesso": "2026-09-03T14:42:00.085Z",
+      "ativo": true
+    }
+  ]
+}
