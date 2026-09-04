@@ -1,6 +1,6 @@
 // ============================================
 // 🚀 GBot Launcher - AutoJS6
-// VERSÃO COM AUTO UPDATE + TOKEN ROTATIVO + VALIDAÇÃO SHA
+// VERSÃO CORRIGIDA - UI FIX + AUTO UPDATE
 // ============================================
 
 "ui";
@@ -9,7 +9,7 @@
 // CONFIGURAÇÕES
 // ============================================
 
-// VERSÃO ATUAL DO LAUNCHER (ATUALIZE QUANDO MUDAR)
+// VERSÃO ATUAL DO LAUNCHER
 var VERSAO_ATUAL = "2.0.0";
 
 // Configurações do GitHub
@@ -36,7 +36,7 @@ var URL_VERSAO_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO +
 var MONITOR_INTERVALO = 500;
 var TIMEOUT_REQ = 5000;
 var MAX_FALHAS = 3;
-var CHECK_UPDATE_INTERVAL = 60000; // Verifica atualizações a cada 60 segundos
+var CHECK_UPDATE_INTERVAL = 60000;
 
 // ============================================
 // ESTADO
@@ -136,7 +136,7 @@ function status(msg, cor) {
 
 function gerarToken() {
     try {
-        var data = new Date().toISOString().split('T')[0]; // Apenas data (YYYY-MM-DD)
+        var data = new Date().toISOString().split('T')[0];
         var hora = new Date().getHours();
         var base = st.serial + data + hora + "GBOT_SALT_2026_SECURE";
         
@@ -151,7 +151,7 @@ function gerarToken() {
         token = token.substring(0, 32).toUpperCase();
         
         st.token = token;
-        st.tokenExpiracao = new Date().getTime() + (60 * 60 * 1000); // Expira em 1 hora
+        st.tokenExpiracao = new Date().getTime() + (60 * 60 * 1000);
         
         log("🔐 Token gerado: " + token.substring(0, 8) + "****", 'token');
         return token;
@@ -164,13 +164,10 @@ function gerarToken() {
 function validarToken(token) {
     if (!token) return false;
     if (!st.token) return false;
-    
-    // Verifica se o token expirou
     if (st.tokenExpiracao && new Date().getTime() > st.tokenExpiracao) {
-        log("⏰ Token expirado, gerando novo...", 'token');
+        log("⏰ Token expirado", 'token');
         return false;
     }
-    
     return token === st.token;
 }
 
@@ -203,7 +200,7 @@ function calcularSHA256(conteudo) {
 
 function validarIntegridade(conteudo, hashEsperado) {
     if (!conteudo || !hashEsperado) {
-        log("⚠️ Dados insuficientes para validação", 'warn');
+        log("⚠️ Dados insuficientes", 'warn');
         return false;
     }
     
@@ -214,7 +211,6 @@ function validarIntegridade(conteudo, hashEsperado) {
     
     if (valido) {
         log("✅ Integridade verificada (SHA-256)", 'security');
-        log("🔑 Hash: " + hashCalculado.substring(0, 16) + "...", 'debug');
     } else {
         log("❌ INTEGRIDADE COMPROMETIDA!", 'security');
         log("📌 Esperado: " + hashEsperado.substring(0, 16) + "...", 'debug');
@@ -248,7 +244,6 @@ function verificarVersao(callback) {
             log("📌 Versão GitHub: " + versaoGitHub, 'update');
             log("📌 Versão Local: " + VERSAO_ATUAL, 'update');
             
-            // Armazena o hash para validação
             st.hashLauncher = hashLauncher;
             
             if (callback) callback({
@@ -298,7 +293,6 @@ function baixarAtualizacao(callback) {
             return;
         }
         
-        // Valida integridade antes de atualizar
         if (st.hashLauncher) {
             if (!validarIntegridade(script, st.hashLauncher)) {
                 log("❌ Falha na validação de integridade!", 'update');
@@ -307,14 +301,14 @@ function baixarAtualizacao(callback) {
             }
         }
         
-        log("✅ Atualização baixada com sucesso! " + script.length + " caracteres", 'update');
+        log("✅ Atualização baixada! " + script.length + " caracteres", 'update');
         if (callback) callback(script, null);
     });
 }
 
 function aplicarAtualizacao(script) {
     if (!script) {
-        log("❌ Script vazio, não é possível atualizar", 'update');
+        log("❌ Script vazio", 'update');
         return;
     }
     
@@ -322,7 +316,6 @@ function aplicarAtualizacao(script) {
     status("⏳ Atualizando Launcher...", "#ffaa00");
     
     try {
-        // Salva o script atualizado
         var tempFile = "/sdcard/launcher_update.js";
         var writer = new java.io.FileWriter(tempFile);
         writer.write(script);
@@ -330,17 +323,14 @@ function aplicarAtualizacao(script) {
         
         log("📁 Arquivo salvo: " + tempFile, 'update');
         
-        // Verifica novamente a integridade
-        var fileContent = script;
         if (st.hashLauncher) {
-            if (!validarIntegridade(fileContent, st.hashLauncher)) {
-                log("❌ Arquivo baixado corrompido!", 'update');
+            if (!validarIntegridade(script, st.hashLauncher)) {
+                log("❌ Arquivo corrompido!", 'update');
                 toast("❌ Falha na integridade!");
                 return;
             }
         }
         
-        // Para o monitor atual
         st.monitorAtivo = false;
         if (st.threadMonitor) {
             try { st.threadMonitor.interrupt(); } catch(e) {}
@@ -351,32 +341,28 @@ function aplicarAtualizacao(script) {
             st.threadUpdate = null;
         }
         
-        // Executa o novo launcher
         log("🚀 Executando novo Launcher...", 'update');
         status("🔄 Reiniciando...", "#ffaa00");
         
-        // Salva como o arquivo principal
         var mainFile = "/sdcard/launcher_main.js";
         var writer2 = new java.io.FileWriter(mainFile);
         writer2.write(script);
         writer2.close();
         
-        // Executa o novo script
-        var result = engines.execScriptFile(mainFile, {
+        engines.execScriptFile(mainFile, {
             name: "GBot Launcher v" + VERSAO_ATUAL,
             executionMode: "ui"
         });
         
-        log("✅ Atualização aplicada com sucesso!", 'update');
+        log("✅ Atualização aplicada!", 'update');
         status("✅ Launcher atualizado!", "#00ff00");
         toast("🔄 Launcher atualizado! Reiniciando...");
         
-        // Fecha o launcher atual após 2 segundos
         sleep(2000);
         exit();
         
     } catch(e) {
-        log("❌ Erro ao aplicar atualização: " + e.message, 'err');
+        log("❌ Erro ao aplicar: " + e.message, 'err');
         status("❌ Falha na atualização!", "#ff4444");
         toast("❌ Erro ao atualizar!");
     }
@@ -390,24 +376,6 @@ function httpGetAsync(url, headers, callback) {
     threads.start(function() {
         try {
             var response = http.get(url, { 
-                headers: headers || {}, 
-                timeout: TIMEOUT_REQ 
-            });
-            ui.run(function() { 
-                callback(null, response); 
-            });
-        } catch(e) {
-            ui.run(function() { 
-                callback(e.message, null); 
-            });
-        }
-    });
-}
-
-function httpPutAsync(url, data, headers, callback) {
-    threads.start(function() {
-        try {
-            var response = http.put(url, data, { 
                 headers: headers || {}, 
                 timeout: TIMEOUT_REQ 
             });
@@ -474,7 +442,6 @@ function getSerial() {
     st.serialOriginal = serial;
     log("🔑 Serial final: " + serial, 'serial');
     
-    // Gera token após obter serial
     gerarToken();
     
     return serial;
@@ -613,7 +580,7 @@ function processarSeriais(dados, callback) {
 }
 
 // ============================================
-// SISTEMA DE AUTO UPDATE (RODANDO EM BACKGROUND)
+// SISTEMA DE AUTO UPDATE (BACKGROUND)
 // ============================================
 
 function iniciarVerificadorUpdate() {
@@ -632,7 +599,6 @@ function iniciarVerificadorUpdate() {
         
         while (st.monitorAtivo && !st.revogado) {
             try {
-                // Verifica a cada intervalo
                 sleep(CHECK_UPDATE_INTERVAL);
                 
                 ui.run(function() {
@@ -640,21 +606,18 @@ function iniciarVerificadorUpdate() {
                     
                     verificarVersao(function(info, erro) {
                         if (erro || !info) {
-                            log("⚠️ Falha ao verificar versão", 'update');
                             return;
                         }
                         
                         if (info.atualizacaoDisponivel) {
-                            log("🆕 Nova versão disponível: " + info.versaoGitHub, 'update');
+                            log("🆕 Nova versão: " + info.versaoGitHub, 'update');
                             log("📝 Changelog: " + info.changelog, 'update');
                             
-                            // Se for obrigatório ou usuário quiser atualizar
                             if (info.obrigatorio) {
                                 log("⚠️ Atualização OBRIGATÓRIA!", 'update');
                                 status("🔄 Atualização obrigatória!", "#ffaa00");
                                 baixarEAtualizar();
                             } else {
-                                // Pergunta se quer atualizar
                                 dialogs.build({
                                     title: "🔄 Nova Versão Disponível!",
                                     content: "Versão " + info.versaoGitHub + " disponível\n\n" +
@@ -669,7 +632,7 @@ function iniciarVerificadorUpdate() {
                             }
                         } else {
                             if (primeiroCheck) {
-                                log("✅ Launcher está atualizado (v" + VERSAO_ATUAL + ")", 'update');
+                                log("✅ Launcher atualizado (v" + VERSAO_ATUAL + ")", 'update');
                                 primeiroCheck = false;
                             }
                         }
@@ -698,7 +661,6 @@ function baixarEAtualizar() {
             return;
         }
         
-        // Aplica a atualização (fecha o launcher atual)
         aplicarAtualizacao(script);
     });
 }
@@ -733,7 +695,6 @@ function iniciarMonitoramento() {
                 var inicio = Date.now();
                 contador++;
                 
-                // Verifica serial no GitHub
                 httpGetAsync(URL_SERIAL_RAW, { 'User-Agent': 'GBot/1.0' }, function(err, response) {
                     if (err || !response || response.statusCode !== 200) {
                         falhas++;
@@ -768,7 +729,6 @@ function iniciarMonitoramento() {
                         
                         falhas = 0;
                         
-                        // Verifica e renova token se necessário
                         if (st.tokenExpiracao && new Date().getTime() > st.tokenExpiracao - 300000) {
                             renovarToken();
                         }
@@ -791,7 +751,6 @@ function iniciarMonitoramento() {
         }
     });
     
-    // Inicia o verificador de updates
     iniciarVerificadorUpdate();
     
     log("✅ Monitor iniciado!", 'monitor');
@@ -822,7 +781,6 @@ function revogarAcesso(motivo) {
         st.threadUpdate = null;
     }
     
-    // Mata o GBot
     try {
         var scripts = engines.all();
         for (var i = 0; i < scripts.length; i++) {
@@ -1080,13 +1038,13 @@ function iniciar() {
 }
 
 // ============================================
-// UI
+// UI CORRIGIDA
 // ============================================
 
 ui.layout(
     <vertical bg="#1a1a2e" padding="16">
         <text text="🔐 GBot Launcher" textSize="22" textColor="#00b4d8" textStyle="bold" gravity="center"/>
-        <text text="v" + VERSAO_ATUAL + " - Auto Update" textSize="11" textColor="#90e0ef" gravity="center" marginBottom="12"/>
+        <text text={ "v" + VERSAO_ATUAL + " - Auto Update" } textSize="11" textColor="#90e0ef" gravity="center" marginBottom="12"/>
         
         <frame bg="#16213e" radius="8" padding="12" marginBottom="8">
             <vertical>
