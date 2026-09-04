@@ -1,522 +1,572 @@
 // ============================================
-// 🚀 GBot Launcher - AutoJS6
-// VERSÃO COM ATUALIZAÇÃO OBRIGATÓRIA
+// 🚀 GBOT LAUNCHER - AUTOJS6 COMPATIBLE
+// Versão 2.2 - Correções e Melhorias
 // ============================================
 
 "ui";
 
 // ============================================
-// CONFIGURAÇÕES
+// CONFIGURAÇÃO
 // ============================================
 
-// VERSÃO ATUAL DO LAUNCHER (ATUALIZE QUANDO MUDAR)
-var VERSAO_ATUAL = "2.0.0";
-
-// Configurações do GitHub
-var GITHUB_TOKEN = "";
-var OWNER = "danielhito102";
-var REPO = "GBot";
-
-// URLs
-var URL_LAUNCHER_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/main/launcher.js";
-var URL_LAUNCHER_API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/launcher.js";
-var URL_SERIAL_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/main/seriais.json";
-var URL_SERIAL_API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/seriais.json";
-var URL_DEVICES_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/main/devices.json";
-var URL_DEVICES_API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/devices.json";
-var URL_REGISTRO_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/main/registro.json";
-var URL_REGISTRO_API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/registro.json";
-var URL_GBOT_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/main/GBot.js";
-var URL_VERSAO_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/main/version.json";
-
-// ============================================
-// CONFIGURAÇÕES
-// ============================================
-
-var MONITOR_INTERVALO = 500;
-var TIMEOUT_REQ = 5000;
-var MAX_FALHAS = 3;
-var CHECK_UPDATE_INTERVAL = 10000; // 10 segundos (mais frequente para updates obrigatórios)
-
-// ============================================
-// ESTADO
-// ============================================
-
-var st = {
-    serial: null,
-    serialOriginal: null,
-    androidId: null,
-    autorizado: false,
-    user: null,
-    validade: null,
-    dias: null,
-    executando: false,
-    trace: [],
-    seriaisLista: [],
-    dadosSeriais: null,
-    monitorAtivo: false,
-    threadMonitor: null,
-    threadUpdate: null,
-    falhasConsecutivas: 0,
-    ultimoSHA: null,
-    dadosCache: null,
-    revogado: false,
-    gbotProcesso: null,
-    token: null,
-    tokenExpiracao: null,
-    hashLauncher: null,
-    atualizacaoPendente: false, // Flag para impedir execução
-    atualizando: false
+var CONFIG = {
+    OWNER: "danielhito102",
+    REPO: "GBot",
+    TOKEN: "",
+    INTERVAL: 3000,
+    TIMEOUT: 10000,
+    MAX_FAILS: 5,
+    TRACE_ENABLED: true,
+    CLEAN_ON_START: true,
+    CLEAN_ON_EXIT: true,
+    CLEAN_ON_REVOKE: true,
+    USE_THREADS: true
 };
 
 // ============================================
-// FUNÇÃO DE SLEEP
+// URLs
 // ============================================
 
-function sleep(ms) {
-    try {
-        if (typeof threads !== 'undefined' && threads.sleep) {
-            threads.sleep(ms);
-        } else {
-            java.lang.Thread.sleep(ms);
-        }
-    } catch(e) {
-        var start = Date.now();
-        while (Date.now() - start < ms) {}
-    }
-}
+var URLS = {
+    SERIAL: "https://raw.githubusercontent.com/" + CONFIG.OWNER + "/" + CONFIG.REPO + "/main/seriais.json",
+    GBOT: "https://raw.githubusercontent.com/" + CONFIG.OWNER + "/" + CONFIG.REPO + "/main/GBot.js",
+    DEVICES: "https://raw.githubusercontent.com/" + CONFIG.OWNER + "/" + CONFIG.REPO + "/main/devices.json"
+};
 
 // ============================================
-// LOGS
+// SISTEMA DE TRACE
 // ============================================
 
-function log(m, t) {
-    var d = new Date().toLocaleString('pt-BR');
-    var ic = "[i]";
-    if (t === 'ok') ic = "[OK]";
-    else if (t === 'err') ic = "[ERRO]";
-    else if (t === 'warn') ic = "[AVISO]";
-    else if (t === 'step') ic = "[PASSO]";
-    else if (t === 'debug') ic = "[DEBUG]";
-    else if (t === 'info') ic = "[INFO]";
-    else if (t === 'serial') ic = "[SERIAL]";
-    else if (t === 'security') ic = "[🔒SEG]";
-    else if (t === 'monitor') ic = "[📡MON]";
-    else if (t === 'revoke') ic = "[🚫REV]";
-    else if (t === 'kill') ic = "[💀KILL]";
-    else if (t === 'sha') ic = "[🔑SHA]";
-    else if (t === 'update') ic = "[🔄UPDATE]";
-    else if (t === 'token') ic = "[🔐TOKEN]";
-    else if (t === 'force') ic = "[⚠️FORÇADO]";
+var traceSystem = {
+    entries: [],
+    maxEntries: 1000,
+    startTime: 0,
+    sessionId: "",
+    serialHistory: [],
+    revocationHistory: [],
+    dbUpdateTimes: [],
     
-    var e = "[" + d + "] " + ic + " " + m + "\n";
-    st.trace.push(e);
-    if (st.trace.length > 500) st.trace.splice(0, 100);
+    init: function() {
+        this.startTime = Date.now();
+        this.sessionId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+        this.entries = [];
+        this.serialHistory = [];
+        this.revocationHistory = [];
+        this.dbUpdateTimes = [];
+    },
     
-    try {
-        var v = ui.logText;
-        if (v) {
-            var txt = v.text();
-            var lines = txt.split('\n');
-            if (lines.length > 500) lines.splice(0, 100);
-            lines.push(e);
-            v.setText(lines.join('\n'));
-            ui.scrollView.scrollTo(0, v.getHeight());
-        }
-    } catch(e) {}
-}
-
-function status(msg, cor) {
-    try { 
-        ui.statusText.setText(msg);
-        ui.statusText.setTextColor(colors.parseColor(cor || "#caf0f8"));
-    } catch(e) {}
-}
-
-// ============================================
-// 1️⃣ SISTEMA DE TOKEN ROTATIVO
-// ============================================
-
-function gerarToken() {
-    try {
-        var data = new Date().toISOString().split('T')[0];
-        var hora = new Date().getHours();
-        var base = st.serial + data + hora + "GBOT_SALT_2026_SECURE";
+    add: function(type, data) {
+        var entry = {
+            timestamp: Date.now(),
+            time: new Date().toISOString(),
+            type: type,
+            data: data,
+            sessionId: this.sessionId,
+            elapsed: Date.now() - this.startTime
+        };
         
-        var md = java.security.MessageDigest.getInstance("SHA-256");
-        var bytes = md.digest(new java.lang.String(base).getBytes("UTF-8"));
-        var token = "";
-        for (var i = 0; i < bytes.length; i++) {
-            var hex = java.lang.Integer.toHexString(bytes[i] & 0xFF);
-            if (hex.length() === 1) hex = "0" + hex;
-            token += hex;
-        }
-        token = token.substring(0, 32).toUpperCase();
-        
-        st.token = token;
-        st.tokenExpiracao = new Date().getTime() + (60 * 60 * 1000);
-        
-        log("🔐 Token gerado: " + token.substring(0, 8) + "****", 'token');
-        return token;
-    } catch(e) {
-        log("❌ Erro ao gerar token: " + e.message, 'err');
-        return null;
-    }
-}
-
-function validarToken(token) {
-    if (!token) return false;
-    if (!st.token) return false;
-    if (st.tokenExpiracao && new Date().getTime() > st.tokenExpiracao) {
-        log("⏰ Token expirado", 'token');
-        return false;
-    }
-    return token === st.token;
-}
-
-function renovarToken() {
-    var novoToken = gerarToken();
-    log("🔄 Token renovado", 'token');
-    return novoToken;
-}
-
-// ============================================
-// 2️⃣ VALIDAÇÃO DE INTEGRIDADE (SHA-256)
-// ============================================
-
-function calcularSHA256(conteudo) {
-    try {
-        var md = java.security.MessageDigest.getInstance("SHA-256");
-        var bytes = md.digest(new java.lang.String(conteudo).getBytes("UTF-8"));
-        var hash = "";
-        for (var i = 0; i < bytes.length; i++) {
-            var hex = java.lang.Integer.toHexString(bytes[i] & 0xFF);
-            if (hex.length() === 1) hex = "0" + hex;
-            hash += hex;
-        }
-        return hash.toUpperCase();
-    } catch(e) {
-        log("❌ Erro ao calcular SHA: " + e.message, 'err');
-        return null;
-    }
-}
-
-function validarIntegridade(conteudo, hashEsperado) {
-    if (!conteudo || !hashEsperado) {
-        log("⚠️ Dados insuficientes", 'warn');
-        return false;
-    }
-    
-    var hashCalculado = calcularSHA256(conteudo);
-    if (!hashCalculado) return false;
-    
-    var valido = hashCalculado === hashEsperado.toUpperCase();
-    
-    if (valido) {
-        log("✅ Integridade verificada (SHA-256)", 'security');
-    } else {
-        log("❌ INTEGRIDADE COMPROMETIDA!", 'security');
-    }
-    
-    return valido;
-}
-
-// ============================================
-// 3️⃣ AUTO UPDATE OBRIGATÓRIO
-// ============================================
-
-function verificarVersao(callback) {
-    log("🔄 Verificando atualizações...", 'update');
-    
-    httpGetAsync(URL_VERSAO_RAW, { 'User-Agent': 'GBot/1.0' }, function(err, response) {
-        if (err || !response || response.statusCode !== 200) {
-            log("⚠️ Falha ao verificar versão", 'update');
-            if (callback) callback(null, "Erro na requisição");
-            return;
+        this.entries.push(entry);
+        if (this.entries.length > this.maxEntries) {
+            this.entries.splice(0, 100);
         }
         
+        if (type === 'SERIAL_CHECK' || type === 'SERIAL_FOUND' || type === 'SERIAL_REVOKED') {
+            this.serialHistory.push(entry);
+        }
+        
+        if (type === 'REVOKE' || type === 'REVOKE_DETECTED') {
+            this.revocationHistory.push(entry);
+        }
+        
+        if (type === 'DB_UPDATE') {
+            this.dbUpdateTimes.push(entry);
+        }
+        
+        return entry;
+    },
+    
+    getSerialTimeline: function() {
+        var result = [];
+        for (var i = 0; i < this.serialHistory.length; i++) {
+            var e = this.serialHistory[i];
+            result.push({
+                time: e.time,
+                type: e.type,
+                serial: e.data.serial || 'unknown',
+                status: e.data.status || 'unknown',
+                elapsed: e.elapsed
+            });
+        }
+        return result;
+    },
+    
+    getRevocationTimeline: function() {
+        var result = [];
+        for (var i = 0; i < this.revocationHistory.length; i++) {
+            var e = this.revocationHistory[i];
+            result.push({
+                time: e.time,
+                type: e.type,
+                serial: e.data.serial || 'unknown',
+                detectionTime: e.data.detectionTime || 0,
+                checks: e.data.checks || 0
+            });
+        }
+        return result;
+    },
+    
+    getSummary: function() {
+        var lastSerial = this.serialHistory.length > 0 ? this.serialHistory[this.serialHistory.length - 1] : null;
+        var lastRevoke = this.revocationHistory.length > 0 ? this.revocationHistory[this.revocationHistory.length - 1] : null;
+        
+        return {
+            sessionId: this.sessionId,
+            startTime: new Date(this.startTime).toISOString(),
+            duration: Date.now() - this.startTime,
+            totalEntries: this.entries.length,
+            serialChecks: this.serialHistory.length,
+            revocations: this.revocationHistory.length,
+            dbUpdates: this.dbUpdateTimes.length,
+            lastSerialCheck: lastSerial,
+            lastRevocation: lastRevoke
+        };
+    },
+    
+    exportTrace: function() {
+        return {
+            summary: this.getSummary(),
+            serialTimeline: this.getSerialTimeline(),
+            revocationTimeline: this.getRevocationTimeline(),
+            fullLogs: this.entries
+        };
+    },
+    
+    clear: function() {
+        this.entries = [];
+        this.serialHistory = [];
+        this.revocationHistory = [];
+        this.dbUpdateTimes = [];
+        this.startTime = Date.now();
+        this.sessionId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+    }
+};
+
+// ============================================
+// SISTEMA DE CLEAN
+// ============================================
+
+var cleanSystem = {
+    
+    getTempFiles: function() {
+        var files = [];
         try {
-            var data = JSON.parse(response.body.string());
-            var versaoGitHub = data.versao || "0.0.0";
-            var hashLauncher = data.hash || null;
-            var changelog = data.changelog || "N/A";
-            var obrigatorio = data.obrigatorio !== undefined ? data.obrigatorio : true; // Agora sempre obrigatório
+            var dirs = [
+                '/sdcard/',
+                '/data/local/tmp/',
+                '/sdcard/Android/data/org.autojs.autojs6/cache/',
+                '/sdcard/autojs/',
+                '/sdcard/脚本/',
+                '/sdcard/Download/'
+            ];
             
-            log("📌 Versão GitHub: " + versaoGitHub, 'update');
-            log("📌 Versão Local: " + VERSAO_ATUAL, 'update');
+            var patterns = ['gbot_temp.js', 'gbot_*.js', 'temp_*.js', 'tmp-*.js', '*.bak', '*.cache'];
             
-            st.hashLauncher = hashLauncher;
-            
-            var atualizacaoDisponivel = compararVersoes(VERSAO_ATUAL, versaoGitHub) < 0;
-            
-            if (atualizacaoDisponivel) {
-                st.atualizacaoPendente = true;
-                log("⚠️ ATUALIZAÇÃO OBRIGATÓRIA DISPONÍVEL!", 'force');
-                log("📝 Changelog: " + changelog, 'update');
-            } else {
-                st.atualizacaoPendente = false;
-            }
-            
-            if (callback) callback({
-                versaoAtual: VERSAO_ATUAL,
-                versaoGitHub: versaoGitHub,
-                hash: hashLauncher,
-                changelog: changelog,
-                obrigatorio: true,
-                atualizacaoDisponivel: atualizacaoDisponivel
-            }, null);
-            
-        } catch(e) {
-            log("❌ Erro ao parsear version.json: " + e.message, 'err');
-            if (callback) callback(null, "Erro no JSON");
-        }
-    });
-}
-
-function compararVersoes(v1, v2) {
-    var p1 = v1.split('.').map(Number);
-    var p2 = v2.split('.').map(Number);
-    
-    for (var i = 0; i < Math.max(p1.length, p2.length); i++) {
-        var n1 = p1[i] || 0;
-        var n2 = p2[i] || 0;
-        if (n1 < n2) return -1;
-        if (n1 > n2) return 1;
-    }
-    return 0;
-}
-
-function baixarAtualizacao(callback) {
-    log("📥 Baixando nova versão do Launcher...", 'update');
-    status("⏳ Baixando atualização obrigatória...", "#ffaa00");
-    
-    httpGetAsync(URL_LAUNCHER_RAW, { 'User-Agent': 'GBot/1.0' }, function(err, response) {
-        if (err || !response || response.statusCode !== 200) {
-            log("❌ Falha ao baixar atualização!", 'update');
-            if (callback) callback(null, "Erro no download");
-            return;
-        }
-        
-        var script = response.body.string();
-        
-        if (!script || script.length < 100) {
-            log("❌ Script baixado é inválido!", 'update');
-            if (callback) callback(null, "Script inválido");
-            return;
-        }
-        
-        if (st.hashLauncher) {
-            if (!validarIntegridade(script, st.hashLauncher)) {
-                log("❌ Falha na validação de integridade!", 'update');
-                if (callback) callback(null, "Falha na integridade");
-                return;
-            }
-        }
-        
-        log("✅ Atualização baixada! " + script.length + " caracteres", 'update');
-        if (callback) callback(script, null);
-    });
-}
-
-function aplicarAtualizacao(script) {
-    if (!script) {
-        log("❌ Script vazio", 'update');
-        return;
-    }
-    
-    if (st.atualizando) {
-        log("⚠️ Atualização já em andamento", 'update');
-        return;
-    }
-    
-    st.atualizando = true;
-    
-    log("🔄 Aplicando atualização obrigatória...", 'update');
-    status("⏳ Atualizando Launcher...", "#ffaa00");
-    
-    try {
-        var tempFile = "/sdcard/launcher_update.js";
-        var writer = new java.io.FileWriter(tempFile);
-        writer.write(script);
-        writer.close();
-        
-        log("📁 Arquivo salvo: " + tempFile, 'update');
-        
-        if (st.hashLauncher) {
-            if (!validarIntegridade(script, st.hashLauncher)) {
-                log("❌ Arquivo corrompido!", 'update');
-                toast("❌ Falha na integridade!");
-                st.atualizando = false;
-                return;
-            }
-        }
-        
-        // Para o monitor atual
-        st.monitorAtivo = false;
-        if (st.threadMonitor) {
-            try { st.threadMonitor.interrupt(); } catch(e) {}
-            st.threadMonitor = null;
-        }
-        if (st.threadUpdate) {
-            try { st.threadUpdate.interrupt(); } catch(e) {}
-            st.threadUpdate = null;
-        }
-        
-        log("🚀 Executando novo Launcher...", 'update');
-        status("🔄 Reiniciando com nova versão...", "#ffaa00");
-        
-        var mainFile = "/sdcard/launcher_main.js";
-        var writer2 = new java.io.FileWriter(mainFile);
-        writer2.write(script);
-        writer2.close();
-        
-        engines.execScriptFile(mainFile, {
-            name: "GBot Launcher v" + VERSAO_ATUAL,
-            executionMode: "ui"
-        });
-        
-        log("✅ Atualização aplicada com sucesso!", 'update');
-        status("✅ Launcher atualizado!", "#00ff00");
-        toast("🔄 Launcher atualizado! Reiniciando...");
-        
-        sleep(2000);
-        exit();
-        
-    } catch(e) {
-        log("❌ Erro ao aplicar: " + e.message, 'err');
-        status("❌ Falha na atualização!", "#ff4444");
-        toast("❌ Erro ao atualizar!");
-        st.atualizando = false;
-    }
-}
-
-// ============================================
-// VERIFICADOR DE UPDATE OBRIGATÓRIO (BACKGROUND)
-// ============================================
-
-function iniciarVerificadorUpdateObrigatorio() {
-    if (st.threadUpdate) {
-        log("⚠️ Verificador já está rodando", 'update');
-        return;
-    }
-    
-    log("========================================", 'update');
-    log("⚠️ INICIANDO VERIFICADOR OBRIGATÓRIO", 'force');
-    log("⏱️ Intervalo: " + (CHECK_UPDATE_INTERVAL/1000) + "s", 'update');
-    log("🔒 Atualizações são OBRIGATÓRIAS", 'force');
-    log("========================================", 'update');
-    
-    st.threadUpdate = threads.start(function() {
-        var primeiroCheck = true;
-        
-        while (true) {
-            try {
-                sleep(CHECK_UPDATE_INTERVAL);
-                
-                ui.run(function() {
-                    // Verifica versão
-                    verificarVersao(function(info, erro) {
-                        if (erro || !info) {
-                            log("⚠️ Falha ao verificar versão", 'update');
-                            return;
-                        }
-                        
-                        if (info.atualizacaoDisponivel) {
-                            log("🆕 NOVA VERSÃO OBRIGATÓRIA: " + info.versaoGitHub, 'force');
-                            log("📝 Changelog: " + info.changelog, 'update');
-                            
-                            // Desabilita o botão iniciar
-                            ui.run(function() {
-                                ui.btnIniciar.setEnabled(false);
-                                ui.btnIniciar.setText("⏳ Atualizando...");
-                            });
-                            
-                            // Mostra diálogo bloqueante
-                            dialogs.build({
-                                title: "⚠️ ATUALIZAÇÃO OBRIGATÓRIA!",
-                                content: "Uma nova versão do Launcher está disponível!\n\n" +
-                                         "📌 Versão atual: " + VERSAO_ATUAL + "\n" +
-                                         "🆕 Nova versão: " + info.versaoGitHub + "\n" +
-                                         "📝 Changelog: " + info.changelog + "\n\n" +
-                                         "🔒 A atualização é OBRIGATÓRIA para continuar.\n" +
-                                         "O Launcher será reiniciado automaticamente.",
-                                positive: "ATUALIZAR AGORA",
-                                cancelable: false // Não permite cancelar
-                            }).on("positive", function() {
-                                baixarEAtualizarObrigatorio();
-                            }).show();
-                            
-                        } else {
-                            if (primeiroCheck) {
-                                log("✅ Launcher atualizado (v" + VERSAO_ATUAL + ")", 'update');
-                                primeiroCheck = false;
-                                
-                                // Habilita o botão iniciar se estiver atualizado
-                                ui.run(function() {
-                                    if (!st.monitorAtivo && !st.revogado) {
-                                        ui.btnIniciar.setEnabled(true);
-                                        ui.btnIniciar.setText("🚀 Iniciar GBot");
+            for (var d = 0; d < dirs.length; d++) {
+                try {
+                    var folder = new java.io.File(dirs[d]);
+                    if (folder.exists() && folder.isDirectory()) {
+                        var list = folder.listFiles();
+                        if (list) {
+                            for (var f = 0; f < list.length; f++) {
+                                var file = list[f];
+                                var name = file.getName();
+                                for (var p = 0; p < patterns.length; p++) {
+                                    var pattern = patterns[p].replace(/\*/g, '.*');
+                                    if (name.match(pattern)) {
+                                        files.push({
+                                            path: file.getAbsolutePath(),
+                                            name: name,
+                                            size: file.length(),
+                                            modified: file.lastModified()
+                                        });
+                                        break;
                                     }
-                                });
+                                }
                             }
                         }
-                    });
-                });
-                
-            } catch(e) {
-                log("❌ Erro no verificador: " + e.message, 'update');
-                sleep(5000);
+                    }
+                } catch(e) {}
             }
-        }
-    });
+        } catch(e) {}
+        return files;
+    },
     
-    log("✅ Verificador obrigatório iniciado!", 'update');
-}
-
-function baixarEAtualizarObrigatorio() {
-    log("📥 Baixando atualização obrigatória...", 'force');
-    status("⏳ Baixando nova versão obrigatória...", "#ffaa00");
+    getRunningScripts: function() {
+        var scripts = [];
+        try {
+            var all = engines.all();
+            for (var i = 0; i < all.length; i++) {
+                try {
+                    var script = all[i];
+                    var name = script.getName ? script.getName() : 'unknown';
+                    scripts.push({
+                        name: name,
+                        running: true
+                    });
+                } catch(e) {}
+            }
+        } catch(e) {}
+        return scripts;
+    },
     
-    baixarAtualizacao(function(script, erro) {
-        if (erro || !script) {
-            log("❌ Falha ao baixar: " + erro, 'update');
-            toast("❌ Falha ao atualizar!");
-            status("❌ Falha na atualização!", "#ff4444");
-            
-            // Tenta novamente após 5 segundos
-            sleep(5000);
-            baixarEAtualizarObrigatorio();
-            return;
+    cleanAll: function(force) {
+        var result = {
+            filesDeleted: [],
+            scriptsKilled: [],
+            cacheCleared: [],
+            errors: []
+        };
+        
+        try {
+            var scripts = this.getRunningScripts();
+            for (var i = 0; i < scripts.length; i++) {
+                var script = scripts[i];
+                if (script.name.indexOf('GBot') !== -1 || script.name.indexOf('Finalizador') !== -1 || force) {
+                    try {
+                        var all = engines.all();
+                        for (var j = 0; j < all.length; j++) {
+                            var s = all[j];
+                            if (s.getName && s.getName().indexOf(script.name) !== -1) {
+                                s.forceStop();
+                                result.scriptsKilled.push(script.name);
+                            }
+                        }
+                    } catch(e) {
+                        result.errors.push('Erro ao matar ' + script.name + ': ' + e.message);
+                    }
+                }
+            }
+        } catch(e) {
+            result.errors.push('Erro ao listar scripts: ' + e.message);
         }
         
-        aplicarAtualizacao(script);
-    });
+        try {
+            var tempFiles = this.getTempFiles();
+            for (var i = 0; i < tempFiles.length; i++) {
+                try {
+                    var f = new java.io.File(tempFiles[i].path);
+                    if (f.exists() && f.delete()) {
+                        result.filesDeleted.push(tempFiles[i].path);
+                    }
+                } catch(e) {
+                    result.errors.push('Erro ao deletar ' + tempFiles[i].path + ': ' + e.message);
+                }
+            }
+        } catch(e) {}
+        
+        try {
+            var cacheDir = context.getCacheDir();
+            if (cacheDir && cacheDir.exists()) {
+                var list = cacheDir.listFiles();
+                if (list) {
+                    for (var i = 0; i < list.length; i++) {
+                        try {
+                            if (list[i].delete()) {
+                                result.cacheCleared.push(list[i].getAbsolutePath());
+                            }
+                        } catch(e) {}
+                    }
+                }
+            }
+        } catch(e) {}
+        
+        try { System.gc(); } catch(e) {}
+        
+        return result;
+    },
+    
+    fullReset: function() {
+        var result = {
+            cleaned: false,
+            killed: false,
+            cacheCleared: false
+        };
+        
+        var cleanResult = this.cleanAll(true);
+        result.cleaned = cleanResult.filesDeleted.length > 0 || cleanResult.cacheCleared.length > 0;
+        result.killed = cleanResult.scriptsKilled.length > 0;
+        
+        try {
+            var prefs = context.getSharedPreferences('org.autojs.autojs6_preferences', 0);
+            if (prefs) {
+                var editor = prefs.edit();
+                editor.clear();
+                editor.apply();
+                result.cacheCleared = true;
+            }
+        } catch(e) {}
+        
+        try {
+            System.gc();
+            System.runFinalization();
+        } catch(e) {}
+        
+        return result;
+    }
+};
+
+// ============================================
+// ESTADO GLOBAL
+// ============================================
+
+var STATE = {
+    serial: null,
+    androidId: null,
+    authorized: false,
+    user: null,
+    validity: null,
+    days: null,
+    running: false,
+    revoked: false,
+    monitorActive: false,
+    checks: 0,
+    fails: 0,
+    startTime: 0,
+    detectionTime: 0,
+    gbotProcess: null,
+    monitorThread: null,
+    lastCheckResult: null,
+    dbLatency: 0,
+    firstCheckTime: 0,
+    permissionGrantedTime: 0,
+    networkAvailable: false
+};
+
+// ============================================
+// INICIALIZAÇÃO
+// ============================================
+
+traceSystem.init();
+
+// ============================================
+// UI HELPERS
+// ============================================
+
+function $(id) {
+    return ui[id];
+}
+
+function logMsg(msg, type) {
+    type = type || 'info';
+    var time = new Date().toLocaleTimeString('pt-BR');
+    var line = '[' + time + '] ' + msg + '\n';
+    
+    if (CONFIG.TRACE_ENABLED) {
+        traceSystem.add('LOG', { message: msg, type: type });
+    }
+    
+    try {
+        var el = $('logText');
+        if (el) {
+            var txt = el.text();
+            var lines = txt.split('\n');
+            if (lines.length > 200) lines.splice(0, 50);
+            lines.push(line);
+            el.setText(lines.join('\n'));
+            $('scrollView').scrollTo(0, el.getHeight());
+        }
+    } catch(e) {}
+}
+
+function setStatus(msg, color) {
+    color = color || '#caf0f8';
+    try {
+        $('statusText').setText(msg);
+        $('statusText').setTextColor(colors.parseColor(color));
+    } catch(e) {}
+}
+
+function showToast(msg) {
+    try { 
+        android.widget.Toast.makeText(context, msg, 0).show(); 
+    } catch(e) {}
+}
+
+function copyToClipboard(text, label) {
+    try {
+        var cb = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+        cb.setPrimaryClip(android.content.ClipData.newPlainText(label || 'Text', text));
+        showToast('✅ Copiado!');
+        return true;
+    } catch(e) {
+        showToast('❌ Erro ao copiar');
+        return false;
+    }
 }
 
 // ============================================
-// REQUISIÇÃO ASSÍNCRONA
+// REQUISIÇÃO COM THREAD (CORRIGIDO)
 // ============================================
 
-function httpGetAsync(url, headers, callback) {
-    threads.start(function() {
+function fetchWithMetrics(url, timeout, asJSON) {
+    timeout = timeout || CONFIG.TIMEOUT;
+    asJSON = asJSON !== undefined ? asJSON : true;
+    var start = Date.now();
+    var result = { data: null, latency: 0, status: 0, error: null };
+    
+    if (!CONFIG.USE_THREADS) {
         try {
-            var response = http.get(url, { 
-                headers: headers || {}, 
-                timeout: TIMEOUT_REQ 
+            var response = http.get(url, {
+                headers: { 
+                    'User-Agent': 'GBot/2.0',
+                    'Accept': asJSON ? 'application/json' : '*/*'
+                },
+                timeout: timeout
             });
-            ui.run(function() { 
-                callback(null, response); 
-            });
+            
+            var latency = Date.now() - start;
+            
+            if (response && response.statusCode === 200) {
+                var body = response.body.string();
+                if (asJSON) {
+                    try {
+                        result.data = JSON.parse(body);
+                    } catch(e) {
+                        result.error = 'JSON Parse Error: ' + e.message;
+                    }
+                } else {
+                    result.data = body;
+                }
+                result.latency = latency;
+                result.status = response.statusCode;
+                
+                traceSystem.add('DB_UPDATE', {
+                    url: url,
+                    latency: latency,
+                    status: response.statusCode,
+                    size: body.length,
+                    isJSON: asJSON
+                });
+            } else {
+                result.status = response ? response.statusCode : 0;
+                result.error = 'HTTP Error: ' + result.status;
+                traceSystem.add('DB_ERROR', {
+                    url: url,
+                    latency: latency,
+                    status: result.status
+                });
+            }
         } catch(e) {
-            ui.run(function() { 
-                callback(e.message, null); 
+            result.error = e.message;
+            traceSystem.add('DB_ERROR', {
+                url: url,
+                latency: Date.now() - start,
+                error: e.message
             });
         }
-    });
+        return result;
+    }
+    
+    // Modo com thread
+    try {
+        var thread = new java.lang.Thread(new java.lang.Runnable({
+            run: function() {
+                try {
+                    var response = http.get(url, {
+                        headers: { 
+                            'User-Agent': 'GBot/2.0',
+                            'Accept': asJSON ? 'application/json' : '*/*'
+                        },
+                        timeout: timeout
+                    });
+                    
+                    var latency = Date.now() - start;
+                    
+                    if (response && response.statusCode === 200) {
+                        var body = response.body.string();
+                        if (asJSON) {
+                            try {
+                                result.data = JSON.parse(body);
+                            } catch(e) {
+                                result.error = 'JSON Parse Error: ' + e.message;
+                            }
+                        } else {
+                            result.data = body;
+                        }
+                        result.latency = latency;
+                        result.status = response.statusCode;
+                        
+                        traceSystem.add('DB_UPDATE', {
+                            url: url,
+                            latency: latency,
+                            status: response.statusCode,
+                            size: body.length,
+                            isJSON: asJSON
+                        });
+                    } else {
+                        result.status = response ? response.statusCode : 0;
+                        result.error = 'HTTP Error: ' + result.status;
+                        traceSystem.add('DB_ERROR', {
+                            url: url,
+                            latency: latency,
+                            status: result.status
+                        });
+                    }
+                } catch(e) {
+                    result.error = e.message;
+                    traceSystem.add('DB_ERROR', {
+                        url: url,
+                        latency: Date.now() - start,
+                        error: e.message
+                    });
+                }
+            }
+        }));
+        
+        thread.start();
+        thread.join(timeout + 2000);
+        return result;
+        
+    } catch(e) {
+        result.error = 'Thread Error: ' + e.message;
+        traceSystem.add('DB_ERROR', {
+            url: url,
+            latency: Date.now() - start,
+            error: result.error
+        });
+        return result;
+    }
 }
 
 // ============================================
-// SERIAL
+// FUNÇÕES ESPECÍFICAS
+// ============================================
+
+function fetchJSONWithMetrics(url, timeout) {
+    return fetchWithMetrics(url, timeout, true);
+}
+
+function fetchTextWithMetrics(url, timeout) {
+    return fetchWithMetrics(url, timeout, false);
+}
+
+// ============================================
+// VERIFICAÇÃO DE CONEXÃO
+// ============================================
+
+function checkNetworkConnection() {
+    try {
+        var connectivityManager = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+        var networkInfo = connectivityManager.getActiveNetworkInfo();
+        STATE.networkAvailable = networkInfo && networkInfo.isConnected();
+        return STATE.networkAvailable;
+    } catch(e) {
+        return true;
+    }
+}
+
+// ============================================
+// SERIAL UTILITIES
 // ============================================
 
 function getAndroidId() {
@@ -526,533 +576,512 @@ function getAndroidId() {
             android.provider.Settings.Secure.ANDROID_ID
         );
         return aid ? aid.toUpperCase() : null;
+    } catch(e) { 
+        return null; 
+    }
+}
+
+function getDeviceSerial() {
+    try {
+        var aid = getAndroidId();
+        if (aid) return aid;
+        
+        var bs = android.os.Build.getSerial();
+        if (bs && bs !== 'unknown') return 'SER_' + bs.substring(0, 8).toUpperCase();
+        
+        var uuid = java.util.UUID.randomUUID().toString().replace(/-/g, '').substring(0, 12).toUpperCase();
+        return 'DEV_' + uuid;
     } catch(e) {
+        return 'DEV_' + Date.now().toString(16).toUpperCase();
+    }
+}
+
+function getDeviceInfo() {
+    try {
+        return {
+            serial: getDeviceSerial(),
+            androidId: getAndroidId(),
+            model: android.os.Build.MODEL || 'Unknown',
+            brand: android.os.Build.BRAND || 'Unknown',
+            manufacturer: android.os.Build.MANUFACTURER || 'Unknown',
+            sdk: android.os.Build.VERSION.SDK_INT || 0,
+            release: android.os.Build.VERSION.RELEASE || 'Unknown'
+        };
+    } catch(e) {
+        return {
+            serial: getDeviceSerial(),
+            androidId: null,
+            model: 'Unknown',
+            brand: 'Unknown',
+            manufacturer: 'Unknown',
+            sdk: 0,
+            release: 'Unknown'
+        };
+    }
+}
+
+function normalizeSerial(s) {
+    return s ? s.toString().trim().toUpperCase() : '';
+}
+
+// ============================================
+// GERENCIAMENTO DE DEVICES
+// ============================================
+
+function updateDeviceInfo() {
+    try {
+        var deviceInfo = getDeviceInfo();
+        var serial = deviceInfo.serial;
+        
+        // Tentar carregar devices existentes
+        var devices = {};
+        try {
+            var stored = storages.create('GBotDevices');
+            devices = stored.get('devices') || {};
+        } catch(e) {
+            devices = {};
+        }
+        
+        // Atualizar informações do dispositivo atual
+        devices[serial] = {
+            serial: serial,
+            androidId: deviceInfo.androidId,
+            model: deviceInfo.model,
+            brand: deviceInfo.brand,
+            manufacturer: deviceInfo.manufacturer,
+            sdk: deviceInfo.sdk,
+            release: deviceInfo.release,
+            lastSeen: new Date().toISOString(),
+            firstSeen: devices[serial] ? devices[serial].firstSeen : new Date().toISOString()
+        };
+        
+        // Salvar localmente
+        try {
+            var stored = storages.create('GBotDevices');
+            stored.put('devices', devices);
+            stored.put('currentSerial', serial);
+            logMsg('💾 Device info salva localmente', 'debug');
+        } catch(e) {
+            logMsg('⚠️ Erro ao salvar device info: ' + e.message, 'warn');
+        }
+        
+        return devices[serial];
+    } catch(e) {
+        logMsg('⚠️ Erro ao atualizar device info: ' + e.message, 'warn');
         return null;
     }
 }
 
-function normalizarSerial(serial) {
-    if (!serial) return "";
-    return serial.toString().trim().toUpperCase();
-}
-
-function getSerial() {
-    log("🔍 Obtendo serial...", 'serial');
-    var serial = null;
-    var androidId = getAndroidId();
-    st.androidId = androidId;
+function checkSerialInDatabase(serial) {
+    var checkStart = Date.now();
     
-    if (androidId) {
-        serial = androidId;
-        log("📱 Android ID: " + serial, 'debug');
-    }
-    
-    if (!serial) {
-        try {
-            var bs = android.os.Build.getSerial();
-            if (bs && bs.length > 0 && bs !== "unknown") {
-                serial = "SER_" + bs.substring(0, 8).toUpperCase();
-                log("📱 Build Serial: " + serial, 'debug');
-            }
-        } catch(e) {}
-    }
-    
-    if (!serial) {
-        var u = java.util.UUID.randomUUID().toString().replace(/-/g, "").substring(0, 12).toUpperCase();
-        serial = "DEV_" + u;
-        log("⚠️ UUID fallback: " + serial, 'warn');
-    }
-    
-    serial = serial.toUpperCase();
-    st.serialOriginal = serial;
-    log("🔑 Serial final: " + serial, 'serial');
-    
-    gerarToken();
-    
-    return serial;
-}
-
-// ============================================
-// BUSCAR SERIAIS
-// ============================================
-
-function buscarSeriais(callback) {
-    log("📡 Buscando seriais.json...", 'step');
-    
-    httpGetAsync(URL_SERIAL_RAW, { 'User-Agent': 'GBot/1.0' }, function(err, response) {
-        if (err || !response || response.statusCode !== 200) {
-            log("❌ Falha ao baixar seriais.json!", 'err');
-            callback(null, "Erro ao baixar");
-            return;
+    try {
+        var result = fetchJSONWithMetrics(URLS.SERIAL);
+        var checkTime = Date.now() - checkStart;
+        
+        if (result.error || !result.data) {
+            return { 
+                found: false, 
+                status: 'ERROR', 
+                error: result.error || 'No data',
+                checkTime: checkTime,
+                dbLatency: result.latency || 0
+            };
         }
         
-        try {
-            var dados = JSON.parse(response.body.string());
-            callback(dados, null);
-        } catch(e) {
-            log("❌ Erro ao parsear JSON: " + e.message, 'err');
-            callback(null, "Erro no JSON");
-        }
-    });
-}
-
-// ============================================
-// VERIFICAÇÃO DE SERIAL
-// ============================================
-
-function verificarSerial(callback) {
-    log("========================================", 'security');
-    log("🔐 VERIFICANDO AUTORIZAÇÃO", 'security');
-    log("========================================", 'security');
-    
-    st.serial = getSerial();
-    ui.serialText.setText("🔑 " + st.serial);
-    
-    buscarSeriais(function(dados, erro) {
-        if (erro || !dados) {
-            log("❌ Falha: " + (erro || "Dados não encontrados"), 'err');
-            callback(false, erro);
-            return;
+        var list = result.data.seriais || result.data.s || [];
+        var target = normalizeSerial(serial);
+        
+        if (!target || list.length === 0) {
+            return { 
+                found: false, 
+                status: 'EMPTY',
+                checkTime: checkTime,
+                dbLatency: result.latency || 0
+            };
         }
         
-        processarSeriais(dados, callback);
-    });
-}
-
-function processarSeriais(dados, callback) {
-    var lista = dados.seriais || dados.s || [];
-    
-    if (lista.length === 0) {
-        log("⚠️ Lista de seriais vazia!", 'warn');
-        if (callback) callback(false, "Lista vazia");
-        return;
-    }
-    
-    log("📊 " + lista.length + " seriais encontrados", 'info');
-    st.seriaisLista = lista;
-    st.dadosCache = dados;
-    
-    var serialLocal = normalizarSerial(st.serial);
-    log("🔍 Buscando: " + serialLocal, 'security');
-    
-    var encontrado = false;
-    var usuario = null;
-    var validade = null;
-    
-    for (var i = 0; i < lista.length; i++) {
-        var item = lista[i];
-        var serialGit = null;
-        var nome = null;
-        var val = null;
+        // Buscar apenas o serial atual
+        var found = false;
+        var user = null;
+        var validity = null;
         
-        if (typeof item === 'object' && item !== null) {
-            serialGit = item.serial || null;
-            nome = item.nome || null;
-            val = item.validade || null;
-        } else if (Array.isArray(item)) {
-            serialGit = item[1] || null;
-            nome = item[2] || null;
-            val = item[3] || null;
-        }
-        
-        if (serialGit) {
-            var serialGitNorm = normalizarSerial(serialGit);
+        for (var i = 0; i < list.length; i++) {
+            var item = list[i];
+            var itemSerial = null;
             
-            if (serialGitNorm === serialLocal) {
-                encontrado = true;
-                usuario = nome || "Usuário";
-                validade = val || null;
-                log("✅ SERIAL ENCONTRADO!", 'ok');
-                log("👤 Usuário: " + usuario, 'info');
+            if (typeof item === 'object') {
+                itemSerial = item.serial || item.id || null;
+                user = item.nome || item.user || null;
+                validity = item.validade || item.expiry || null;
+            } else if (Array.isArray(item)) {
+                itemSerial = item[1] || null;
+                user = item[2] || null;
+                validity = item[3] || null;
+            }
+            
+            if (itemSerial && normalizeSerial(itemSerial) === target) {
+                found = true;
                 break;
             }
         }
-    }
-    
-    if (!encontrado) {
-        log("❌ SERIAL NÃO ENCONTRADO!", 'revoke');
-        if (callback) callback(false, "Serial não autorizado");
-        return;
-    }
-    
-    if (validade) {
-        try {
-            var f = new java.text.SimpleDateFormat("yyyy-MM-dd");
-            var dt = f.parse(validade);
-            var diff = dt.getTime() - new Date().getTime();
-            var dias = Math.ceil(diff / (1000 * 60 * 60 * 24));
-            st.dias = dias;
-            log("📅 Validade: " + validade + " (" + dias + " dias)", 'info');
-            
-            if (dias < 0) {
-                log("🚫 SERIAL EXPIRADO!", 'revoke');
-                if (callback) callback(false, "Serial expirado");
-                return;
-            }
-        } catch(e) {
-            log("⚠️ Erro ao validar data", 'warn');
+        
+        STATE.dbLatency = result.latency || 0;
+        
+        if (!found) {
+            return {
+                found: false,
+                status: 'REVOKED',
+                checkTime: checkTime,
+                dbLatency: result.latency || 0
+            };
         }
+        
+        var valid = true;
+        var days = null;
+        
+        if (validity) {
+            var parts = validity.split('-');
+            if (parts.length === 3) {
+                var d = new Date(parts[0], parts[1] - 1, parts[2]);
+                var diff = d.getTime() - Date.now();
+                days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+                valid = days >= 0;
+            }
+        }
+        
+        return {
+            found: true,
+            status: valid ? 'VALID' : 'EXPIRED',
+            user: user || 'Unknown',
+            validity: validity || 'N/A',
+            days: days,
+            valid: valid,
+            checkTime: checkTime,
+            dbLatency: result.latency || 0
+        };
+        
+    } catch(e) {
+        return {
+            found: false,
+            status: 'ERROR',
+            error: e.message,
+            checkTime: Date.now() - checkStart
+        };
     }
-    
-    st.autorizado = true;
-    st.user = usuario;
-    st.validade = validade;
-    ui.userText.setText("👤 " + st.user);
-    status("✅ Autorizado: " + st.user, "#00ff00");
-    
-    log("✅ DISPOSITIVO AUTORIZADO!", 'ok');
-    if (callback) callback(true, null);
 }
 
 // ============================================
-// MONITORAMENTO
+// VERIFICAÇÃO DE SERIAL COM TRACE
 // ============================================
 
-function iniciarMonitoramento() {
-    if (st.monitorAtivo) {
-        log("⚠️ Monitor já ativo", 'warn');
-        return;
-    }
+function checkSerialWithTrace(serial) {
+    var checkStart = Date.now();
+    STATE.checks++;
     
-    if (st.revogado) {
-        log("⚠️ Acesso revogado", 'warn');
-        return;
-    }
-    
-    // Verifica se há atualização pendente
-    if (st.atualizacaoPendente) {
-        log("⚠️ Atualização pendente, monitor não inicia", 'update');
-        status("⚠️ Atualize o Launcher primeiro!", "#ff4444");
-        return;
-    }
-    
-    log("========================================", 'monitor');
-    log("🚀 INICIANDO MONITOR", 'monitor');
-    log("⚡ Intervalo: " + MONITOR_INTERVALO + "ms", 'monitor');
-    log("========================================", 'monitor');
-    
-    st.monitorAtivo = true;
-    var falhas = 0;
-    var contador = 0;
-    
-    st.threadMonitor = threads.start(function() {
-        while (st.monitorAtivo && !st.revogado) {
-            try {
-                var inicio = Date.now();
-                contador++;
-                
-                httpGetAsync(URL_SERIAL_RAW, { 'User-Agent': 'GBot/1.0' }, function(err, response) {
-                    if (err || !response || response.statusCode !== 200) {
-                        falhas++;
-                        if (falhas >= MAX_FALHAS) {
-                            falhas = 0;
-                        }
-                        return;
-                    }
-                    
-                    try {
-                        var dados = JSON.parse(response.body.string());
-                        var lista = dados.seriais || dados.s || [];
-                        var serialLocal = normalizarSerial(st.serial);
-                        var encontrado = false;
-                        
-                        for (var i = 0; i < lista.length; i++) {
-                            var item = lista[i];
-                            var serialGit = (typeof item === 'object') ? item.serial : (Array.isArray(item) ? item[1] : null);
-                            if (serialGit && normalizarSerial(serialGit) === serialLocal) {
-                                encontrado = true;
-                                break;
-                            }
-                        }
-                        
-                        if (!encontrado) {
-                            log("🚨 SERIAL REMOVIDO!", 'revoke');
-                            ui.run(function() {
-                                revogarAcesso("Serial removido do GitHub");
-                            });
-                            return;
-                        }
-                        
-                        falhas = 0;
-                        
-                        if (st.tokenExpiracao && new Date().getTime() > st.tokenExpiracao - 300000) {
-                            renovarToken();
-                        }
-                        
-                    } catch(e) {
-                        log("⚠️ Erro no monitor: " + e.message, 'monitor');
-                    }
-                });
-                
-                var elapsed = Date.now() - inicio;
-                var waitTime = Math.max(0, MONITOR_INTERVALO - elapsed);
-                if (waitTime > 0) {
-                    sleep(waitTime);
-                }
-                
-            } catch(e) {
-                log("❌ Erro: " + e.message, 'monitor');
-                sleep(1000);
-            }
-        }
+    traceSystem.add('SERIAL_CHECK', {
+        serial: serial,
+        checkNumber: STATE.checks,
+        timestamp: checkStart
     });
     
-    log("✅ Monitor iniciado!", 'monitor');
+    var result = checkSerialInDatabase(serial);
+    result.checkTime = Date.now() - checkStart;
+    
+    if (result.found && result.valid) {
+        traceSystem.add('SERIAL_FOUND', {
+            serial: serial,
+            user: result.user,
+            validity: result.validity,
+            days: result.days,
+            valid: true,
+            checkTime: result.checkTime,
+            dbLatency: result.dbLatency
+        });
+    } else if (!result.found && result.status === 'REVOKED') {
+        traceSystem.add('SERIAL_REVOKED', {
+            serial: serial,
+            checkNumber: STATE.checks,
+            checkTime: result.checkTime,
+            dbLatency: result.dbLatency || 0,
+            totalChecks: STATE.checks
+        });
+    } else if (result.status === 'ERROR') {
+        traceSystem.add('SERIAL_ERROR', {
+            serial: serial,
+            error: result.error,
+            checkTime: result.checkTime
+        });
+    }
+    
+    return result;
 }
 
 // ============================================
-// REVOGAÇÃO
+// MONITORAMENTO COM TRACE
 // ============================================
 
-function revogarAcesso(motivo) {
-    if (st.revogado) return;
-    st.revogado = true;
-    
-    log("========================================", 'revoke');
-    log("🚫 REVOGANDO ACESSO!", 'revoke');
-    log("📝 Motivo: " + motivo, 'revoke');
-    log("========================================", 'revoke');
-    
-    st.autorizado = false;
-    st.monitorAtivo = false;
-    
-    if (st.threadMonitor) {
-        try { st.threadMonitor.interrupt(); } catch(e) {}
-        st.threadMonitor = null;
-    }
-    if (st.threadUpdate) {
-        try { st.threadUpdate.interrupt(); } catch(e) {}
-        st.threadUpdate = null;
+function startMonitoring() {
+    if (STATE.monitorActive) {
+        logMsg('⚠️ Monitor já ativo', 'warn');
+        return;
     }
     
+    if (STATE.revoked) {
+        logMsg('⚠️ Acesso revogado', 'warn');
+        return;
+    }
+    
+    STATE.monitorActive = true;
+    STATE.fails = 0;
+    STATE.checks = 0;
+    STATE.startTime = Date.now();
+    STATE.detectionTime = 0;
+    STATE.firstCheckTime = Date.now();
+    
+    traceSystem.add('MONITOR_START', {
+        interval: CONFIG.INTERVAL,
+        serial: STATE.serial,
+        startTime: STATE.startTime
+    });
+    
+    logMsg('📡 Monitor iniciado (' + CONFIG.INTERVAL + 'ms)', 'monitor');
+    setStatus('🔍 Monitorando...', '#ffaa00');
+    
+    function monitorLoop() {
+        if (!STATE.monitorActive || STATE.revoked) {
+            traceSystem.add('MONITOR_STOP', {
+                reason: STATE.revoked ? 'REVOKED' : 'MANUAL',
+                totalChecks: STATE.checks
+            });
+            logMsg('⏹️ Monitor interrompido', 'monitor');
+            return;
+        }
+        
+        if (!checkNetworkConnection()) {
+            logMsg('⚠️ Sem conexão de rede', 'warn');
+            setStatus('⚠️ Sem rede', '#ff8800');
+            setTimeout(monitorLoop, CONFIG.INTERVAL * 2);
+            return;
+        }
+        
+        var checkStart = Date.now();
+        var result = checkSerialWithTrace(STATE.serial);
+        var checkDuration = Date.now() - checkStart;
+        
+        STATE.lastCheckResult = result;
+        
+        if (STATE.checks % 5 === 0 || result.status === 'REVOKED') {
+            ui.run(function() {
+                try {
+                    $('checksText').setText('📊 ' + STATE.checks);
+                    $('timeText').setText('⏱️ ' + STATE.detectionTime + 'ms');
+                    $('latencyText').setText('📡 ' + STATE.dbLatency + 'ms');
+                    
+                    if (result.found && result.user) {
+                        $('userText').setText('👤 ' + result.user);
+                        if (result.days !== null) {
+                            $('validityText').setText('📅 ' + result.days + 'd');
+                        }
+                    }
+                } catch(e) {}
+            });
+        }
+        
+        if (!result.found && result.status === 'REVOKED') {
+            STATE.revoked = true;
+            STATE.detectionTime = Date.now() - STATE.startTime;
+            STATE.monitorActive = false;
+            STATE.permissionGrantedTime = 0;
+            
+            traceSystem.add('REVOKE_DETECTED', {
+                serial: STATE.serial,
+                detectionTime: STATE.detectionTime,
+                totalChecks: STATE.checks,
+                checkDuration: checkDuration,
+                dbLatency: result.dbLatency || 0
+            });
+            
+            logMsg('🚫 REVOGADO! ' + STATE.detectionTime + 'ms (' + STATE.checks + ' checks)', 'revoke');
+            setStatus('🚫 REVOGADO! ' + STATE.detectionTime + 'ms', '#ff4444');
+            
+            if (CONFIG.CLEAN_ON_REVOKE) {
+                var cleanResult = cleanSystem.cleanAll(false);
+                logMsg('🧹 Limpeza: ' + cleanResult.filesDeleted.length + ' arquivos removidos', 'clean');
+                traceSystem.add('CLEAN_ON_REVOKE', cleanResult);
+            }
+            
+            killGBot();
+            
+            var traceData = traceSystem.exportTrace();
+            logMsg('📊 Trace: ' + traceData.summary.totalEntries + ' entries', 'info');
+            
+            ui.run(function() {
+                var msg = 
+                    '⏱️ Detecção: ' + STATE.detectionTime + 'ms\n' +
+                    '📊 Verificações: ' + STATE.checks + '\n' +
+                    '🔑 Serial: ' + STATE.serial + '\n' +
+                    '📡 Latência DB: ' + STATE.dbLatency + 'ms\n' +
+                    '🕐 Primeira verificação: ' + new Date(STATE.firstCheckTime).toLocaleTimeString() + '\n' +
+                    '🕐 Revogação: ' + new Date().toLocaleTimeString() + '\n\n' +
+                    'O GBot foi encerrado e rastros removidos.';
+                
+                dialogs.alert('🚫 ACESSO REVOGADO!', msg, function() {
+                    $('btnStart').setText('🔄 Reiniciar');
+                    $('btnStart').setEnabled(true);
+                    
+                    dialogs.confirm('Ver Trace?', 'Deseja ver o relatório completo do trace?', 
+                        function(yes) {
+                            if (yes) {
+                                var traceData = traceSystem.exportTrace();
+                                var summary = JSON.stringify(traceData.summary, null, 2);
+                                dialogs.alert('📊 Relatório Trace', summary);
+                            }
+                        }
+                    );
+                });
+            });
+            
+            return;
+        }
+        
+        if (result.found && result.valid) {
+            STATE.fails = 0;
+            STATE.permissionGrantedTime = Date.now();
+            
+            if (STATE.checks % 10 === 0) {
+                logMsg('✅ #' + STATE.checks + ': ' + result.user + ' (' + (result.days || '∞') + 'd) | DB: ' + result.dbLatency + 'ms', 'ok');
+                setStatus('✅ ' + result.user + ' | ' + (result.days || '∞') + 'd', '#00ff00');
+            }
+        } else if (result.status === 'ERROR') {
+            STATE.fails++;
+            if (STATE.fails >= CONFIG.MAX_FAILS) {
+                logMsg('⚠️ ' + CONFIG.MAX_FAILS + ' falhas consecutivas', 'warn');
+                STATE.fails = 0;
+            }
+        }
+        
+        setTimeout(monitorLoop, CONFIG.INTERVAL);
+    }
+    
+    setTimeout(monitorLoop, 100);
+}
+
+// ============================================
+// MATAR GBOT E LIMPAR
+// ============================================
+
+function killGBot() {
+    logMsg('💀 Matando GBot...', 'kill');
+    
+    var killed = [];
     try {
         var scripts = engines.all();
         for (var i = 0; i < scripts.length; i++) {
-            if (scripts[i].getName && scripts[i].getName().indexOf("GBot") !== -1) {
-                log("🔪 Matando: " + scripts[i].getName(), 'kill');
-                scripts[i].forceStop();
+            var script = scripts[i];
+            var name = script.getName ? script.getName() : '';
+            
+            if (name && (name.indexOf('GBot') !== -1 || name.indexOf('Finalizador') !== -1 || name.indexOf('gbot') !== -1)) {
+                try {
+                    script.forceStop();
+                    killed.push(name);
+                    logMsg('🔪 Matou: ' + name, 'kill');
+                } catch(e) {}
             }
         }
     } catch(e) {}
     
-    ui.run(function() {
-        status("🚫 ACESSO REVOGADO!", "#ff4444");
-        ui.serialText.setText("🔑 " + st.serial + " 🚫");
-        ui.userText.setText("👤 ACESSO NEGADO");
-        ui.btnIniciar.setEnabled(true);
-        ui.btnIniciar.setText("🚀 Reiniciar");
-    });
-    
-    toast("🚫 ACESSO REVOGADO!");
-    
-    try {
-        dialogs.alert("🚫 Acesso Revogado!", 
-            "Motivo: " + motivo + "\n" +
-            "Serial: " + st.serial + "\n" +
-            "Data: " + new Date().toLocaleString('pt-BR'),
-            function() { exit(); }
-        );
-    } catch(e) {
-        sleep(3000);
-        exit();
-    }
-}
-
-// ============================================
-// VERIFICAR ATUALIZAÇÃO MANUAL
-// ============================================
-
-function verificarUpdateManual() {
-    log("🔄 Verificando atualizações manualmente...", 'update');
-    status("⏳ Verificando...", "#ffaa00");
-    
-    verificarVersao(function(info, erro) {
-        if (erro || !info) {
-            log("❌ Falha ao verificar versão", 'update');
-            toast("❌ Falha ao verificar!");
-            status("❌ Erro na verificação", "#ff4444");
-            return;
-        }
-        
-        if (info.atualizacaoDisponivel) {
-            dialogs.build({
-                title: "⚠️ ATUALIZAÇÃO OBRIGATÓRIA!",
-                content: "Uma nova versão do Launcher está disponível!\n\n" +
-                         "📌 Versão atual: " + VERSAO_ATUAL + "\n" +
-                         "🆕 Nova versão: " + info.versaoGitHub + "\n" +
-                         "📝 Changelog: " + info.changelog + "\n\n" +
-                         "🔒 A atualização é OBRIGATÓRIA.",
-                positive: "ATUALIZAR AGORA",
-                cancelable: false
-            }).on("positive", function() {
-                baixarEAtualizarObrigatorio();
-            }).show();
-        } else {
-            toast("✅ Launcher está atualizado (v" + VERSAO_ATUAL + ")");
-            status("✅ Atualizado!", "#00ff00");
-        }
-    });
-}
-
-// ============================================
-// REGISTROS
-// ============================================
-
-function getDeviceInfo() {
-    var info = { modelo: "N/A", android: "N/A", ip: "N/A" };
-    try { info.modelo = android.os.Build.MODEL || "N/A"; } catch(e) {}
-    try { info.android = android.os.Build.VERSION.RELEASE || "N/A"; } catch(e) {}
-    try {
-        var wifi = context.getSystemService(android.content.Context.WIFI_SERVICE);
-        var ip = wifi.getConnectionInfo().getIpAddress();
-        if (ip) info.ip = (ip & 0xFF) + "." + ((ip >> 8) & 0xFF) + "." + ((ip >> 16) & 0xFF) + "." + ((ip >> 24) & 0xFF);
-    } catch(e) {}
-    return info;
-}
-
-// ============================================
-// CARREGAR E EXECUTAR GBOT
-// ============================================
-
-function carregarEExecutarGBot() {
-    // Verifica se há atualização pendente
-    if (st.atualizacaoPendente) {
-        log("⚠️ Atualização pendente! Execute a atualização primeiro.", 'force');
-        status("⚠️ Atualize o Launcher!", "#ff4444");
-        toast("⚠️ Atualização obrigatória pendente!");
-        return;
+    if (killed.length > 0) {
+        logMsg('✅ ' + killed.length + ' processos finalizados', 'ok');
+        traceSystem.add('GBOT_KILLED', { processes: killed });
+    } else {
+        logMsg('ℹ️ Nenhum GBot encontrado', 'info');
     }
     
-    log("📥 Carregando GBot.js...", 'step');
+    STATE.gbotProcess = null;
+}
+
+// ============================================
+// RESET COMPLETO
+// ============================================
+
+function fullReset() {
+    logMsg('🔄 Resetando sistema...', 'step');
     
-    httpGetAsync(URL_GBOT_RAW, { 'User-Agent': 'GBot/1.0' }, function(e, r) {
-        if (e || !r || r.statusCode !== 200) {
-            log("❌ Falha ao carregar GBot.js!", 'err');
-            return;
+    STATE.running = false;
+    STATE.monitorActive = false;
+    STATE.revoked = true;
+    
+    killGBot();
+    
+    var cleanResult = cleanSystem.fullReset();
+    traceSystem.add('FULL_RESET', cleanResult);
+    
+    logMsg('🧹 Reset completo: ' + (cleanResult.cleaned ? '✅' : '❌'), 'clean');
+    logMsg('🗑️ Arquivos removidos: ' + (cleanResult.killed ? '✅' : '❌'), 'clean');
+    
+    traceSystem.clear();
+    
+    $('btnStart').setText('🚀 Iniciar');
+    $('btnStart').setEnabled(true);
+    $('checksText').setText('📊 0');
+    $('timeText').setText('⏱️ 0ms');
+    $('latencyText').setText('📡 0ms');
+    $('userText').setText('👤 ---');
+    $('validityText').setText('📅 ---');
+    setStatus('✅ Reset completo', '#00ff00');
+    
+    logMsg('✅ Reset finalizado!', 'ok');
+    showToast('🔄 Reset completo!');
+    
+    return cleanResult;
+}
+
+// ============================================
+// CARREGAR GBOT (CORRIGIDO)
+// ============================================
+
+function loadAndRunGBot() {
+    logMsg('📥 Carregando GBot...', 'step');
+    setStatus('⏳ Carregando...', '#ffaa00');
+    
+    try {
+        var result = fetchTextWithMetrics(URLS.GBOT);
+        var script = result.data;
+        
+        if (result.error || !script || typeof script !== 'string' || script.length < 100) {
+            logMsg('❌ GBot.js vazio ou inválido', 'err');
+            return false;
         }
         
-        var script = r.body.string();
-        if (!script || script.length < 100) {
-            log("❌ Script inválido!", 'err');
-            return;
-        }
-        
-        log("✅ GBot.js carregado! " + script.length + " caracteres", 'ok');
+        logMsg('✅ GBot.js carregado (' + script.length + ' caracteres)', 'ok');
         
         try {
-            var tempFile = "/sdcard/gbot_temp.js";
-            var writer = new java.io.FileWriter(tempFile);
-            writer.write(script);
-            writer.close();
-            
-            log("🚀 Executando GBot...", 'step');
-            engines.execScriptFile(tempFile, { 
-                name: "GBot Finalizador", 
-                executionMode: "ui" 
+            var result2 = engines.execScript('GBot Finalizador', script, {
+                executionMode: 'ui'
             });
             
-            log("✅ GBot executado!", 'ok');
-            status("✅ GBot iniciado! Monitorando", "#00ff00");
-            toast("🚀 GBot iniciado!");
+            STATE.gbotProcess = result2;
+            logMsg('✅ GBot em execução!', 'ok');
+            setStatus('✅ GBot ativo!', '#00ff00');
+            showToast('🚀 GBot iniciado!');
             
-            setTimeout(function() { 
-                if (!st.revogado && !st.atualizacaoPendente) {
-                    iniciarMonitoramento();
+            setTimeout(function() {
+                if (!STATE.revoked) {
+                    startMonitoring();
                 }
             }, 1000);
             
+            return true;
         } catch(e) {
-            log("❌ Erro ao executar: " + e.message, 'err');
-            try {
-                eval(script);
-                log("✅ Executado com eval!", 'ok');
-                setTimeout(function() { 
-                    if (!st.revogado && !st.atualizacaoPendente) {
-                        iniciarMonitoramento();
-                    }
-                }, 1000);
-            } catch(e2) {
-                log("❌ Erro no eval: " + e2.message, 'err');
-            }
+            logMsg('❌ Erro ao executar: ' + e.message, 'err');
+            return false;
         }
-    });
-}
-
-// ============================================
-// COPIAR LOG
-// ============================================
-
-function copiarLogCompleto() {
-    try {
-        var info = getDeviceInfo();
-        var agora = new Date();
-        
-        var logCompleto = "";
-        logCompleto += "═══════════════════════════════════════════════════════\n";
-        logCompleto += "              📋 GBOT LAUNCHER - LOG COMPLETO           \n";
-        logCompleto += "═══════════════════════════════════════════════════════\n\n";
-        
-        logCompleto += "📌 INFORMAÇÕES DO SISTEMA\n";
-        logCompleto += "───────────────────────────────────────────────────────\n";
-        logCompleto += "  📅 Data/Hora: " + agora.toLocaleString('pt-BR') + "\n";
-        logCompleto += "  📱 Serial: " + (st.serial || "N/A") + "\n";
-        logCompleto += "  🔑 Android ID: " + (st.androidId || "N/A") + "\n";
-        logCompleto += "  👤 Usuário: " + (st.user || "N/A") + "\n";
-        logCompleto += "  ✅ Autorizado: " + (st.autorizado ? "SIM" : "NÃO") + "\n";
-        logCompleto += "  📡 Monitor: " + (st.monitorAtivo ? "ATIVO" : "INATIVO") + "\n";
-        logCompleto += "  🚫 Revogado: " + (st.revogado ? "SIM" : "NÃO") + "\n";
-        logCompleto += "  📊 Seriais na Lista: " + st.seriaisLista.length + "\n";
-        logCompleto += "  📱 Modelo: " + (info.modelo || "N/A") + "\n";
-        logCompleto += "  🤖 Android: " + (info.android || "N/A") + "\n";
-        logCompleto += "  🌐 IP: " + (info.ip || "N/A") + "\n";
-        logCompleto += "  🔐 Token: " + (st.token ? st.token.substring(0, 8) + "****" : "N/A") + "\n";
-        logCompleto += "  📌 Versão Launcher: " + VERSAO_ATUAL + "\n";
-        logCompleto += "  ⚠️ Atualização Pendente: " + (st.atualizacaoPendente ? "SIM" : "NÃO") + "\n\n";
-        
-        logCompleto += "📌 LISTA DE SERIAIS (GitHub)\n";
-        logCompleto += "───────────────────────────────────────────────────────\n";
-        if (st.seriaisLista.length > 0) {
-            for (var i = 0; i < st.seriaisLista.length; i++) {
-                var item = st.seriaisLista[i];
-                var serial = (typeof item === 'object') ? item.serial : (Array.isArray(item) ? item[1] : null);
-                var nome = (typeof item === 'object') ? item.nome : (Array.isArray(item) ? item[2] : null);
-                var validade = (typeof item === 'object') ? item.validade : (Array.isArray(item) ? item[3] : null);
-                if (serial) {
-                    var ativo = (normalizarSerial(serial) === normalizarSerial(st.serial)) ? " ◄ ATUAL" : "";
-                    logCompleto += "  " + (i+1) + ". " + serial + " | " + (nome || "N/A") + " | " + (validade || "N/A") + ativo + "\n";
-                }
-            }
-        } else {
-            logCompleto += "  ⚠️ Nenhum serial encontrado\n";
-        }
-        logCompleto += "\n";
-        
-        logCompleto += "📌 LOG DE EXECUÇÃO (" + st.trace.length + " linhas)\n";
-        logCompleto += "───────────────────────────────────────────────────────\n";
-        if (st.trace.length > 0) {
-            for (var i = 0; i < st.trace.length; i++) {
-                logCompleto += st.trace[i];
-            }
-        } else {
-            logCompleto += "  ⚠️ Nenhum log disponível\n";
-        }
-        
-        logCompleto += "\n═══════════════════════════════════════════════════════\n";
-        logCompleto += "  📋 Log gerado em: " + agora.toLocaleString('pt-BR') + "\n";
-        logCompleto += "  🔧 GBot Launcher v" + VERSAO_ATUAL + " (Atualização Obrigatória)\n";
-        logCompleto += "═══════════════════════════════════════════════════════\n";
-        
-        var clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
-        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("GBot Log", logCompleto));
-        
-        var tamanhoKB = Math.round(logCompleto.length / 1024);
-        toast("✅ Log copiado! (" + tamanhoKB + " KB, " + st.trace.length + " linhas)");
-        status("📋 Log copiado!", "#00ff00");
-        log("📋 Log completo copiado (" + tamanhoKB + " KB)", 'info');
         
     } catch(e) {
-        log("❌ Erro ao copiar log: " + e.message, 'err');
-        toast("❌ Erro ao copiar log!");
+        logMsg('❌ Erro ao carregar: ' + e.message, 'err');
+        setStatus('❌ Erro na execução', '#ff4444');
+        return false;
     }
 }
 
@@ -1060,43 +1089,116 @@ function copiarLogCompleto() {
 // PROCESSO PRINCIPAL
 // ============================================
 
-function iniciar() {
-    if (st.executando) return;
-    if (st.monitorAtivo) {
-        toast("⏳ Monitor já ativo!");
+function startGBot() {
+    if (STATE.running) {
+        showToast('⏳ Já está rodando!');
         return;
     }
     
-    // Verifica se há atualização pendente
-    if (st.atualizacaoPendente) {
-        log("⚠️ Atualização pendente! Atualize o Launcher primeiro.", 'force');
-        status("⚠️ Atualização obrigatória pendente!", "#ff4444");
-        toast("⚠️ Atualize o Launcher primeiro!");
+    if (STATE.monitorActive) {
+        showToast('⏳ Monitor ativo!');
         return;
     }
     
-    st.revogado = false;
-    st.executando = true;
-    ui.btnIniciar.setEnabled(false);
-    ui.btnIniciar.setText("⏳ Verificando...");
+    if (!checkNetworkConnection()) {
+        logMsg('❌ Sem conexão de rede', 'err');
+        setStatus('❌ Sem rede', '#ff4444');
+        showToast('❌ Verifique sua conexão!');
+        return;
+    }
     
-    verificarSerial(function(autorizado, motivo) {
-        if (!autorizado) {
-            log("❌ Acesso negado: " + motivo, 'err');
-            status("❌ Acesso negado!", "#ff4444");
-            toast("❌ Não autorizado!");
-            ui.btnIniciar.setEnabled(true);
-            ui.btnIniciar.setText("🚀 Iniciar GBot");
-            st.executando = false;
-            return;
-        }
-        
-        carregarEExecutarGBot();
-        
-        ui.btnIniciar.setText("⏳ Monitorando");
-        ui.btnIniciar.setEnabled(true);
-        st.executando = false;
+    if (CONFIG.CLEAN_ON_START) {
+        logMsg('🧹 Limpando antes de iniciar...', 'clean');
+        var cleanResult = cleanSystem.cleanAll(false);
+        traceSystem.add('CLEAN_ON_START', cleanResult);
+        logMsg('🧹 ' + cleanResult.filesDeleted.length + ' arquivos removidos', 'clean');
+    }
+    
+    STATE.revoked = false;
+    STATE.monitorActive = false;
+    STATE.running = true;
+    STATE.checks = 0;
+    STATE.detectionTime = 0;
+    STATE.firstCheckTime = 0;
+    STATE.permissionGrantedTime = 0;
+    
+    STATE.serial = getDeviceSerial();
+    STATE.androidId = getAndroidId();
+    
+    // Atualizar informações do dispositivo
+    updateDeviceInfo();
+    
+    traceSystem.add('APP_START', {
+        serial: STATE.serial,
+        androidId: STATE.androidId,
+        timestamp: Date.now()
     });
+    
+    logMsg('========================================', 'step');
+    logMsg('🚀 INICIANDO GBOT', 'step');
+    logMsg('🔑 Serial: ' + STATE.serial, 'serial');
+    logMsg('📱 Android ID: ' + STATE.androidId, 'debug');
+    logMsg('📡 Trace ID: ' + traceSystem.sessionId, 'debug');
+    logMsg('========================================', 'step');
+    
+    $('btnStart').setText('⏳ Iniciando...');
+    $('btnStart').setEnabled(false);
+    $('serialText').setText('🔑 ' + STATE.serial);
+    $('userText').setText('👤 Verificando...');
+    
+    var result = checkSerialWithTrace(STATE.serial);
+    
+    if (result.error || !result.found || !result.valid) {
+        logMsg('❌ Acesso negado: ' + (result.status || result.error), 'err');
+        setStatus('❌ Acesso negado!', '#ff4444');
+        showToast('❌ Não autorizado!');
+        $('btnStart').setText('🚀 Iniciar');
+        $('btnStart').setEnabled(true);
+        STATE.running = false;
+        
+        traceSystem.add('ACCESS_DENIED', {
+            serial: STATE.serial,
+            status: result.status || 'ERROR',
+            error: result.error,
+            reason: 'Not authorized'
+        });
+        return;
+    }
+    
+    STATE.authorized = true;
+    STATE.user = result.user;
+    STATE.validity = result.validity;
+    STATE.days = result.days;
+    STATE.permissionGrantedTime = Date.now();
+    
+    traceSystem.add('ACCESS_GRANTED', {
+        serial: STATE.serial,
+        user: result.user,
+        validity: result.validity,
+        days: result.days,
+        checkTime: result.checkTime,
+        dbLatency: result.dbLatency
+    });
+    
+    logMsg('✅ Autorizado: ' + result.user, 'ok');
+    logMsg('📅 Validade: ' + result.validity + ' (' + result.days + 'd)', 'info');
+    logMsg('📡 Latência DB: ' + result.dbLatency + 'ms', 'info');
+    
+    $('userText').setText('👤 ' + result.user);
+    $('validityText').setText('📅 ' + result.days + 'd');
+    $('latencyText').setText('📡 ' + result.dbLatency + 'ms');
+    setStatus('✅ ' + result.user + ' | ' + result.days + 'd', '#00ff00');
+    
+    var success = loadAndRunGBot();
+    
+    if (success) {
+        $('btnStart').setText('⏳ Monitorando...');
+        $('btnStart').setEnabled(true);
+    } else {
+        $('btnStart').setText('🚀 Tentar Novamente');
+        $('btnStart').setEnabled(true);
+        STATE.running = false;
+    }
 }
 
 // ============================================
@@ -1104,39 +1206,48 @@ function iniciar() {
 // ============================================
 
 ui.layout(
-    <vertical bg="#1a1a2e" padding="16">
-        <text text="🔐 GBot Launcher" textSize="22" textColor="#00b4d8" textStyle="bold" gravity="center"/>
-        <text text={ "v" + VERSAO_ATUAL + " - Atualização Obrigatória" } textSize="11" textColor="#ff6b6b" gravity="center" marginBottom="12"/>
+    <vertical bg="#1a1a2e" padding="12">
+        <text text="🚀 GBot Launcher" textSize="18" textColor="#00b4d8" textStyle="bold" gravity="center"/>
+        <text text="AutoJS6 Compatible v2.2" textSize="11" textColor="#90e0ef" gravity="center" marginBottom="8"/>
         
-        <frame bg="#16213e" radius="8" padding="12" marginBottom="8">
+        <frame bg="#16213e" radius="8" padding="10" marginBottom="8">
             <vertical>
-                <horizontal gravity="center" marginBottom="8">
-                    <text id="statusText" text="⏳ Aguardando..." textSize="12" textColor="#caf0f8" layout_weight="1" gravity="center"/>
-                    <button id="btnCopiarLog" text="📋" bg="#2a2a4a" textColor="#ffffff" w="30" h="30" textSize="11"/>
+                <text id="statusText" text="✅ Pronto" textSize="14" textColor="#00ff00" gravity="center" marginBottom="4"/>
+                <horizontal gravity="center">
+                    <text id="serialText" text="🔑 ---" textSize="10" textColor="#888" layout_weight="1" gravity="center"/>
+                    <text id="userText" text="👤 ---" textSize="10" textColor="#888" layout_weight="1" gravity="center"/>
                 </horizontal>
-                <text id="serialText" text="🔑 Serial: Aguardando..." textSize="10" textColor="#888" gravity="center" marginBottom="4"/>
-                <text id="userText" text="👤 Usuário: N/A" textSize="10" textColor="#888" gravity="center"/>
+                <horizontal gravity="center" marginTop="4">
+                    <text id="checksText" text="📊 0" textSize="10" textColor="#888" layout_weight="1" gravity="center"/>
+                    <text id="timeText" text="⏱️ 0ms" textSize="10" textColor="#888" layout_weight="1" gravity="center"/>
+                    <text id="latencyText" text="📡 0ms" textSize="10" textColor="#888" layout_weight="1" gravity="center"/>
+                </horizontal>
+                <horizontal gravity="center" marginTop="2">
+                    <text id="validityText" text="📅 ---" textSize="10" textColor="#888" layout_weight="1" gravity="center"/>
+                </horizontal>
             </vertical>
         </frame>
         
-        <horizontal marginBottom="8">
-            <button id="btnIniciar" text="🚀 Iniciar GBot" bg="#0077b6" textColor="#ffffff" layout_weight="0.7" marginRight="4"/>
-            <button id="btnUpdate" text="🔄" bg="#ff6b6b" textColor="#ffffff" layout_weight="0.3" textSize="16"/>
+        <horizontal marginBottom="6">
+            <button id="btnStart" text="🚀 Iniciar" bg="#0077b6" textColor="#ffffff" layout_weight="1" marginRight="4"/>
+            <button id="btnReset" text="🔄 Reset" bg="#dc3545" textColor="#ffffff" layout_weight="1" marginLeft="4"/>
         </horizontal>
         
-        <frame layout_weight="1" bg="#0a0a1a" radius="6" padding="6">
+        <frame layout_weight="1" bg="#0a0a1a" radius="6" padding="6" marginBottom="6">
             <vertical>
-                <horizontal marginBottom="4">
-                    <text text="🐛 Debug" textSize="9" textColor="#888" layout_weight="1"/>
-                    <text id="logCount" text="0 linhas" textSize="8" textColor="#555"/>
-                </horizontal>
+                <text text="📋 Logs" textSize="9" textColor="#888"/>
                 <scroll id="scrollView">
                     <text id="logText" text="Aguardando...\n" textSize="8" textColor="#666"/>
                 </scroll>
             </vertical>
         </frame>
         
-        <button id="btnSair" text="🚪 Sair" bg="#6c757d" textColor="#ffffff" marginTop="6"/>
+        <horizontal>
+            <button id="btnCopySerial" text="📋 Serial" bg="#6c757d" textColor="#ffffff" layout_weight="1" marginRight="4"/>
+            <button id="btnTrace" text="📊 Trace" bg="#6c757d" textColor="#ffffff" layout_weight="1" marginRight="4"/>
+            <button id="btnClear" text="🧹 Limpar" bg="#6c757d" textColor="#ffffff" layout_weight="1" marginLeft="4"/>
+            <button id="btnExit" text="🚪 Sair" bg="#6c757d" textColor="#ffffff" layout_weight="1" marginLeft="4"/>
+        </horizontal>
     </vertical>
 );
 
@@ -1144,91 +1255,106 @@ ui.layout(
 // EVENTOS
 // ============================================
 
-ui.btnIniciar.click(function() { 
-    if (st.monitorAtivo) {
-        toast("⏳ Monitor já ativo!");
-        return;
-    }
-    if (st.revogado) {
-        st.revogado = false;
-    }
-    iniciar(); 
+$('btnStart').click(startGBot);
+
+$('btnReset').click(function() {
+    dialogs.confirm('Reset Completo?', 'Isso vai matar todos os processos e remover todos os rastros. Continuar?', 
+        function(yes) {
+            if (yes) {
+                fullReset();
+            }
+        }
+    );
 });
 
-ui.btnUpdate.click(function() { 
-    verificarUpdateManual(); 
-});
-
-ui.btnCopiarLog.click(function() { 
-    copiarLogCompleto(); 
-});
-
-ui.btnSair.click(function() {
-    if (dialogs.confirm("Sair", "Deseja sair?")) {
-        st.monitorAtivo = false;
-        st.revogado = true;
-        if (st.threadMonitor) try { st.threadMonitor.interrupt(); } catch(e) {}
-        if (st.threadUpdate) try { st.threadUpdate.interrupt(); } catch(e) {}
-        exit();
+$('btnCopySerial').click(function() {
+    var serial = STATE.serial || getDeviceSerial();
+    if (copyToClipboard(serial, 'Device Serial')) {
+        logMsg('📋 Serial copiado: ' + serial, 'info');
+        showToast('✅ Serial copiado!');
     }
+});
+
+$('btnTrace').click(function() {
+    var traceData = traceSystem.exportTrace();
+    var summary = 
+        '📊 RELATÓRIO TRACE\n\n' +
+        'Session: ' + traceData.summary.sessionId + '\n' +
+        'Duração: ' + (traceData.summary.duration / 1000).toFixed(1) + 's\n' +
+        'Total Entries: ' + traceData.summary.totalEntries + '\n' +
+        'Serial Checks: ' + traceData.summary.serialChecks + '\n' +
+        'Revocações: ' + traceData.summary.revocations + '\n' +
+        'DB Updates: ' + traceData.summary.dbUpdates + '\n\n' +
+        'Último Serial Check: ' + (traceData.summary.lastSerialCheck ? 
+            new Date(traceData.summary.lastSerialCheck.timestamp).toLocaleTimeString() : 'N/A') + '\n' +
+        'Última Revocação: ' + (traceData.summary.lastRevocation ? 
+            new Date(traceData.summary.lastRevocation.timestamp).toLocaleTimeString() : 'N/A');
+    
+    dialogs.alert('📊 Trace', summary, function() {
+        dialogs.confirm('Exportar Trace?', 'Deseja copiar o trace completo para o clipboard?',
+            function(yes) {
+                if (yes) {
+                    try {
+                        var json = JSON.stringify(traceData, null, 2);
+                        copyToClipboard(json, 'Trace Export');
+                    } catch(e) {
+                        showToast('❌ Erro ao exportar');
+                    }
+                }
+            }
+        );
+    });
+});
+
+$('btnClear').click(function() {
+    try {
+        $('logText').setText('');
+        logMsg('🗑️ Logs limpos', 'info');
+    } catch(e) {}
+});
+
+$('btnExit').click(function() {
+    dialogs.confirm('Sair', 'Deseja sair e limpar tudo?', function(yes) {
+        if (yes) {
+            if (CONFIG.CLEAN_ON_EXIT) {
+                fullReset();
+            } else {
+                killGBot();
+                STATE.running = false;
+                STATE.monitorActive = false;
+            }
+            exit();
+        }
+    });
 });
 
 // ============================================
 // INICIALIZAÇÃO
 // ============================================
 
-try { activity.getWindow().setFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN, android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN); } catch(e) {}
-try { device.keepScreenOn(); } catch(e) {}
+try {
+    activity.getWindow().setFlags(
+        android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,
+        android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN
+    );
+} catch(e) {}
 
-var serialTemp = getSerial();
-ui.serialText.setText("🔑 " + serialTemp);
+if (CONFIG.CLEAN_ON_START) {
+    cleanSystem.cleanAll(false);
+}
 
-log("========================================", 'step');
-log("🔐 GBot Launcher v" + VERSAO_ATUAL + " pronto!", 'step');
-log("⚠️ ATUALIZAÇÕES SÃO OBRIGATÓRIAS", 'force');
-log("📱 Serial: " + serialTemp, 'info');
-log("🔐 Token: " + (st.token ? st.token.substring(0, 8) + "****" : "N/A"), 'token');
-log("🔄 Auto Update Obrigatório: ATIVO", 'update');
-log("========================================", 'step');
+STATE.serial = getDeviceSerial();
 
-// Verifica atualização imediatamente ao iniciar
-status("⏳ Verificando atualizações obrigatórias...", "#ffaa00");
-verificarVersao(function(info, erro) {
-    if (erro || !info) {
-        log("⚠️ Falha na verificação inicial", 'update');
-        status("✅ Clique em 'Iniciar GBot'", "#00ff00");
-        return;
-    }
-    
-    if (info.atualizacaoDisponivel) {
-        log("⚠️ ATUALIZAÇÃO OBRIGATÓRIA DISPONÍVEL!", 'force');
-        status("⚠️ Atualização obrigatória disponível!", "#ff4444");
-        
-        // Desabilita o botão iniciar
-        ui.btnIniciar.setEnabled(false);
-        ui.btnIniciar.setText("⏳ Atualize!");
-        
-        dialogs.build({
-            title: "⚠️ ATUALIZAÇÃO OBRIGATÓRIA!",
-            content: "Uma nova versão do Launcher está disponível!\n\n" +
-                     "📌 Versão atual: " + VERSAO_ATUAL + "\n" +
-                     "🆕 Nova versão: " + info.versaoGitHub + "\n" +
-                     "📝 Changelog: " + info.changelog + "\n\n" +
-                     "🔒 A atualização é OBRIGATÓRIA para continuar.",
-            positive: "ATUALIZAR AGORA",
-            cancelable: false
-        }).on("positive", function() {
-            baixarEAtualizarObrigatorio();
-        }).show();
-    } else {
-        log("✅ Launcher atualizado (v" + VERSAO_ATUAL + ")", 'update');
-        status("✅ Clique em 'Iniciar GBot'", "#00ff00");
-        ui.btnIniciar.setEnabled(true);
-        ui.btnIniciar.setText("🚀 Iniciar GBot");
-    }
-});
+// Atualizar informações do dispositivo na inicialização
+updateDeviceInfo();
 
-// Inicia o verificador em background
-iniciarVerificadorUpdateObrigatorio();
+logMsg('🚀 GBot Launcher AutoJS6 v2.2', 'info');
+logMsg('🔑 Serial: ' + STATE.serial, 'serial');
+logMsg('📡 Trace ID: ' + traceSystem.sessionId, 'debug');
+logMsg('⚡ Intervalo: ' + CONFIG.INTERVAL + 'ms', 'info');
+logMsg('🧹 Sistema de limpeza ativo', 'clean');
+logMsg('📌 Clique em "Iniciar" para começar', 'info');
 
-toast("🔐 GBot Launcher v" + VERSAO_ATUAL + " - Atualização Obrigatória");
+$('serialText').setText('🔑 ' + STATE.serial);
+setStatus('✅ Pronto!', '#00ff00');
+showToast('🚀 GBot AutoJS6 v2.2 pronto!');
