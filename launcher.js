@@ -1,6 +1,6 @@
 // ============================================
 // 🚀 GBot Launcher - AutoJS6
-// VERSÃO CORRIGIDA - UI FIX + AUTO UPDATE
+// VERSÃO COM ATUALIZAÇÃO OBRIGATÓRIA
 // ============================================
 
 "ui";
@@ -9,7 +9,7 @@
 // CONFIGURAÇÕES
 // ============================================
 
-// VERSÃO ATUAL DO LAUNCHER
+// VERSÃO ATUAL DO LAUNCHER (ATUALIZE QUANDO MUDAR)
 var VERSAO_ATUAL = "2.0.0";
 
 // Configurações do GitHub
@@ -36,7 +36,7 @@ var URL_VERSAO_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO +
 var MONITOR_INTERVALO = 500;
 var TIMEOUT_REQ = 5000;
 var MAX_FALHAS = 3;
-var CHECK_UPDATE_INTERVAL = 60000;
+var CHECK_UPDATE_INTERVAL = 10000; // 10 segundos (mais frequente para updates obrigatórios)
 
 // ============================================
 // ESTADO
@@ -64,7 +64,9 @@ var st = {
     gbotProcesso: null,
     token: null,
     tokenExpiracao: null,
-    hashLauncher: null
+    hashLauncher: null,
+    atualizacaoPendente: false, // Flag para impedir execução
+    atualizando: false
 };
 
 // ============================================
@@ -105,6 +107,7 @@ function log(m, t) {
     else if (t === 'sha') ic = "[🔑SHA]";
     else if (t === 'update') ic = "[🔄UPDATE]";
     else if (t === 'token') ic = "[🔐TOKEN]";
+    else if (t === 'force') ic = "[⚠️FORÇADO]";
     
     var e = "[" + d + "] " + ic + " " + m + "\n";
     st.trace.push(e);
@@ -213,15 +216,13 @@ function validarIntegridade(conteudo, hashEsperado) {
         log("✅ Integridade verificada (SHA-256)", 'security');
     } else {
         log("❌ INTEGRIDADE COMPROMETIDA!", 'security');
-        log("📌 Esperado: " + hashEsperado.substring(0, 16) + "...", 'debug');
-        log("📌 Calculado: " + hashCalculado.substring(0, 16) + "...", 'debug');
     }
     
     return valido;
 }
 
 // ============================================
-// 3️⃣ AUTO UPDATE SYSTEM
+// 3️⃣ AUTO UPDATE OBRIGATÓRIO
 // ============================================
 
 function verificarVersao(callback) {
@@ -239,20 +240,30 @@ function verificarVersao(callback) {
             var versaoGitHub = data.versao || "0.0.0";
             var hashLauncher = data.hash || null;
             var changelog = data.changelog || "N/A";
-            var obrigatorio = data.obrigatorio || false;
+            var obrigatorio = data.obrigatorio !== undefined ? data.obrigatorio : true; // Agora sempre obrigatório
             
             log("📌 Versão GitHub: " + versaoGitHub, 'update');
             log("📌 Versão Local: " + VERSAO_ATUAL, 'update');
             
             st.hashLauncher = hashLauncher;
             
+            var atualizacaoDisponivel = compararVersoes(VERSAO_ATUAL, versaoGitHub) < 0;
+            
+            if (atualizacaoDisponivel) {
+                st.atualizacaoPendente = true;
+                log("⚠️ ATUALIZAÇÃO OBRIGATÓRIA DISPONÍVEL!", 'force');
+                log("📝 Changelog: " + changelog, 'update');
+            } else {
+                st.atualizacaoPendente = false;
+            }
+            
             if (callback) callback({
                 versaoAtual: VERSAO_ATUAL,
                 versaoGitHub: versaoGitHub,
                 hash: hashLauncher,
                 changelog: changelog,
-                obrigatorio: obrigatorio,
-                atualizacaoDisponivel: compararVersoes(VERSAO_ATUAL, versaoGitHub) < 0
+                obrigatorio: true,
+                atualizacaoDisponivel: atualizacaoDisponivel
             }, null);
             
         } catch(e) {
@@ -277,6 +288,7 @@ function compararVersoes(v1, v2) {
 
 function baixarAtualizacao(callback) {
     log("📥 Baixando nova versão do Launcher...", 'update');
+    status("⏳ Baixando atualização obrigatória...", "#ffaa00");
     
     httpGetAsync(URL_LAUNCHER_RAW, { 'User-Agent': 'GBot/1.0' }, function(err, response) {
         if (err || !response || response.statusCode !== 200) {
@@ -312,7 +324,14 @@ function aplicarAtualizacao(script) {
         return;
     }
     
-    log("🔄 Aplicando atualização...", 'update');
+    if (st.atualizando) {
+        log("⚠️ Atualização já em andamento", 'update');
+        return;
+    }
+    
+    st.atualizando = true;
+    
+    log("🔄 Aplicando atualização obrigatória...", 'update');
     status("⏳ Atualizando Launcher...", "#ffaa00");
     
     try {
@@ -327,10 +346,12 @@ function aplicarAtualizacao(script) {
             if (!validarIntegridade(script, st.hashLauncher)) {
                 log("❌ Arquivo corrompido!", 'update');
                 toast("❌ Falha na integridade!");
+                st.atualizando = false;
                 return;
             }
         }
         
+        // Para o monitor atual
         st.monitorAtivo = false;
         if (st.threadMonitor) {
             try { st.threadMonitor.interrupt(); } catch(e) {}
@@ -342,7 +363,7 @@ function aplicarAtualizacao(script) {
         }
         
         log("🚀 Executando novo Launcher...", 'update');
-        status("🔄 Reiniciando...", "#ffaa00");
+        status("🔄 Reiniciando com nova versão...", "#ffaa00");
         
         var mainFile = "/sdcard/launcher_main.js";
         var writer2 = new java.io.FileWriter(mainFile);
@@ -354,7 +375,7 @@ function aplicarAtualizacao(script) {
             executionMode: "ui"
         });
         
-        log("✅ Atualização aplicada!", 'update');
+        log("✅ Atualização aplicada com sucesso!", 'update');
         status("✅ Launcher atualizado!", "#00ff00");
         toast("🔄 Launcher atualizado! Reiniciando...");
         
@@ -365,7 +386,111 @@ function aplicarAtualizacao(script) {
         log("❌ Erro ao aplicar: " + e.message, 'err');
         status("❌ Falha na atualização!", "#ff4444");
         toast("❌ Erro ao atualizar!");
+        st.atualizando = false;
     }
+}
+
+// ============================================
+// VERIFICADOR DE UPDATE OBRIGATÓRIO (BACKGROUND)
+// ============================================
+
+function iniciarVerificadorUpdateObrigatorio() {
+    if (st.threadUpdate) {
+        log("⚠️ Verificador já está rodando", 'update');
+        return;
+    }
+    
+    log("========================================", 'update');
+    log("⚠️ INICIANDO VERIFICADOR OBRIGATÓRIO", 'force');
+    log("⏱️ Intervalo: " + (CHECK_UPDATE_INTERVAL/1000) + "s", 'update');
+    log("🔒 Atualizações são OBRIGATÓRIAS", 'force');
+    log("========================================", 'update');
+    
+    st.threadUpdate = threads.start(function() {
+        var primeiroCheck = true;
+        
+        while (true) {
+            try {
+                sleep(CHECK_UPDATE_INTERVAL);
+                
+                ui.run(function() {
+                    // Verifica versão
+                    verificarVersao(function(info, erro) {
+                        if (erro || !info) {
+                            log("⚠️ Falha ao verificar versão", 'update');
+                            return;
+                        }
+                        
+                        if (info.atualizacaoDisponivel) {
+                            log("🆕 NOVA VERSÃO OBRIGATÓRIA: " + info.versaoGitHub, 'force');
+                            log("📝 Changelog: " + info.changelog, 'update');
+                            
+                            // Desabilita o botão iniciar
+                            ui.run(function() {
+                                ui.btnIniciar.setEnabled(false);
+                                ui.btnIniciar.setText("⏳ Atualizando...");
+                            });
+                            
+                            // Mostra diálogo bloqueante
+                            dialogs.build({
+                                title: "⚠️ ATUALIZAÇÃO OBRIGATÓRIA!",
+                                content: "Uma nova versão do Launcher está disponível!\n\n" +
+                                         "📌 Versão atual: " + VERSAO_ATUAL + "\n" +
+                                         "🆕 Nova versão: " + info.versaoGitHub + "\n" +
+                                         "📝 Changelog: " + info.changelog + "\n\n" +
+                                         "🔒 A atualização é OBRIGATÓRIA para continuar.\n" +
+                                         "O Launcher será reiniciado automaticamente.",
+                                positive: "ATUALIZAR AGORA",
+                                cancelable: false // Não permite cancelar
+                            }).on("positive", function() {
+                                baixarEAtualizarObrigatorio();
+                            }).show();
+                            
+                        } else {
+                            if (primeiroCheck) {
+                                log("✅ Launcher atualizado (v" + VERSAO_ATUAL + ")", 'update');
+                                primeiroCheck = false;
+                                
+                                // Habilita o botão iniciar se estiver atualizado
+                                ui.run(function() {
+                                    if (!st.monitorAtivo && !st.revogado) {
+                                        ui.btnIniciar.setEnabled(true);
+                                        ui.btnIniciar.setText("🚀 Iniciar GBot");
+                                    }
+                                });
+                            }
+                        }
+                    });
+                });
+                
+            } catch(e) {
+                log("❌ Erro no verificador: " + e.message, 'update');
+                sleep(5000);
+            }
+        }
+    });
+    
+    log("✅ Verificador obrigatório iniciado!", 'update');
+}
+
+function baixarEAtualizarObrigatorio() {
+    log("📥 Baixando atualização obrigatória...", 'force');
+    status("⏳ Baixando nova versão obrigatória...", "#ffaa00");
+    
+    baixarAtualizacao(function(script, erro) {
+        if (erro || !script) {
+            log("❌ Falha ao baixar: " + erro, 'update');
+            toast("❌ Falha ao atualizar!");
+            status("❌ Falha na atualização!", "#ff4444");
+            
+            // Tenta novamente após 5 segundos
+            sleep(5000);
+            baixarEAtualizarObrigatorio();
+            return;
+        }
+        
+        aplicarAtualizacao(script);
+    });
 }
 
 // ============================================
@@ -580,92 +705,6 @@ function processarSeriais(dados, callback) {
 }
 
 // ============================================
-// SISTEMA DE AUTO UPDATE (BACKGROUND)
-// ============================================
-
-function iniciarVerificadorUpdate() {
-    if (st.threadUpdate) {
-        log("⚠️ Verificador de update já está rodando", 'update');
-        return;
-    }
-    
-    log("========================================", 'update');
-    log("🔄 INICIANDO VERIFICADOR DE UPDATE", 'update');
-    log("⏱️ Intervalo: " + (CHECK_UPDATE_INTERVAL/1000) + "s", 'update');
-    log("========================================", 'update');
-    
-    st.threadUpdate = threads.start(function() {
-        var primeiroCheck = true;
-        
-        while (st.monitorAtivo && !st.revogado) {
-            try {
-                sleep(CHECK_UPDATE_INTERVAL);
-                
-                ui.run(function() {
-                    if (!st.monitorAtivo || st.revogado) return;
-                    
-                    verificarVersao(function(info, erro) {
-                        if (erro || !info) {
-                            return;
-                        }
-                        
-                        if (info.atualizacaoDisponivel) {
-                            log("🆕 Nova versão: " + info.versaoGitHub, 'update');
-                            log("📝 Changelog: " + info.changelog, 'update');
-                            
-                            if (info.obrigatorio) {
-                                log("⚠️ Atualização OBRIGATÓRIA!", 'update');
-                                status("🔄 Atualização obrigatória!", "#ffaa00");
-                                baixarEAtualizar();
-                            } else {
-                                dialogs.build({
-                                    title: "🔄 Nova Versão Disponível!",
-                                    content: "Versão " + info.versaoGitHub + " disponível\n\n" +
-                                             "Versão atual: " + VERSAO_ATUAL + "\n" +
-                                             "Changelog: " + info.changelog + "\n\n" +
-                                             "Deseja atualizar agora?",
-                                    positive: "SIM",
-                                    negative: "Depois"
-                                }).on("positive", function() {
-                                    baixarEAtualizar();
-                                }).show();
-                            }
-                        } else {
-                            if (primeiroCheck) {
-                                log("✅ Launcher atualizado (v" + VERSAO_ATUAL + ")", 'update');
-                                primeiroCheck = false;
-                            }
-                        }
-                    });
-                });
-                
-            } catch(e) {
-                log("❌ Erro no verificador: " + e.message, 'update');
-                sleep(5000);
-            }
-        }
-    });
-    
-    log("✅ Verificador de update iniciado!", 'update');
-}
-
-function baixarEAtualizar() {
-    log("📥 Baixando atualização...", 'update');
-    status("⏳ Baixando nova versão...", "#ffaa00");
-    
-    baixarAtualizacao(function(script, erro) {
-        if (erro || !script) {
-            log("❌ Falha ao baixar: " + erro, 'update');
-            toast("❌ Falha ao atualizar!");
-            status("❌ Falha na atualização!", "#ff4444");
-            return;
-        }
-        
-        aplicarAtualizacao(script);
-    });
-}
-
-// ============================================
 // MONITORAMENTO
 // ============================================
 
@@ -677,6 +716,13 @@ function iniciarMonitoramento() {
     
     if (st.revogado) {
         log("⚠️ Acesso revogado", 'warn');
+        return;
+    }
+    
+    // Verifica se há atualização pendente
+    if (st.atualizacaoPendente) {
+        log("⚠️ Atualização pendente, monitor não inicia", 'update');
+        status("⚠️ Atualize o Launcher primeiro!", "#ff4444");
         return;
     }
     
@@ -750,8 +796,6 @@ function iniciarMonitoramento() {
             }
         }
     });
-    
-    iniciarVerificadorUpdate();
     
     log("✅ Monitor iniciado!", 'monitor');
 }
@@ -832,15 +876,16 @@ function verificarUpdateManual() {
         
         if (info.atualizacaoDisponivel) {
             dialogs.build({
-                title: "🔄 Nova Versão Disponível!",
-                content: "Versão " + info.versaoGitHub + " disponível\n\n" +
-                         "Versão atual: " + VERSAO_ATUAL + "\n" +
-                         "Changelog: " + info.changelog + "\n\n" +
-                         "Deseja atualizar agora?",
-                positive: "SIM",
-                negative: "Depois"
+                title: "⚠️ ATUALIZAÇÃO OBRIGATÓRIA!",
+                content: "Uma nova versão do Launcher está disponível!\n\n" +
+                         "📌 Versão atual: " + VERSAO_ATUAL + "\n" +
+                         "🆕 Nova versão: " + info.versaoGitHub + "\n" +
+                         "📝 Changelog: " + info.changelog + "\n\n" +
+                         "🔒 A atualização é OBRIGATÓRIA.",
+                positive: "ATUALIZAR AGORA",
+                cancelable: false
             }).on("positive", function() {
-                baixarEAtualizar();
+                baixarEAtualizarObrigatorio();
             }).show();
         } else {
             toast("✅ Launcher está atualizado (v" + VERSAO_ATUAL + ")");
@@ -870,6 +915,14 @@ function getDeviceInfo() {
 // ============================================
 
 function carregarEExecutarGBot() {
+    // Verifica se há atualização pendente
+    if (st.atualizacaoPendente) {
+        log("⚠️ Atualização pendente! Execute a atualização primeiro.", 'force');
+        status("⚠️ Atualize o Launcher!", "#ff4444");
+        toast("⚠️ Atualização obrigatória pendente!");
+        return;
+    }
+    
     log("📥 Carregando GBot.js...", 'step');
     
     httpGetAsync(URL_GBOT_RAW, { 'User-Agent': 'GBot/1.0' }, function(e, r) {
@@ -903,7 +956,7 @@ function carregarEExecutarGBot() {
             toast("🚀 GBot iniciado!");
             
             setTimeout(function() { 
-                if (!st.revogado) {
+                if (!st.revogado && !st.atualizacaoPendente) {
                     iniciarMonitoramento();
                 }
             }, 1000);
@@ -914,7 +967,7 @@ function carregarEExecutarGBot() {
                 eval(script);
                 log("✅ Executado com eval!", 'ok');
                 setTimeout(function() { 
-                    if (!st.revogado) {
+                    if (!st.revogado && !st.atualizacaoPendente) {
                         iniciarMonitoramento();
                     }
                 }, 1000);
@@ -953,7 +1006,8 @@ function copiarLogCompleto() {
         logCompleto += "  🤖 Android: " + (info.android || "N/A") + "\n";
         logCompleto += "  🌐 IP: " + (info.ip || "N/A") + "\n";
         logCompleto += "  🔐 Token: " + (st.token ? st.token.substring(0, 8) + "****" : "N/A") + "\n";
-        logCompleto += "  📌 Versão Launcher: " + VERSAO_ATUAL + "\n\n";
+        logCompleto += "  📌 Versão Launcher: " + VERSAO_ATUAL + "\n";
+        logCompleto += "  ⚠️ Atualização Pendente: " + (st.atualizacaoPendente ? "SIM" : "NÃO") + "\n\n";
         
         logCompleto += "📌 LISTA DE SERIAIS (GitHub)\n";
         logCompleto += "───────────────────────────────────────────────────────\n";
@@ -985,7 +1039,7 @@ function copiarLogCompleto() {
         
         logCompleto += "\n═══════════════════════════════════════════════════════\n";
         logCompleto += "  📋 Log gerado em: " + agora.toLocaleString('pt-BR') + "\n";
-        logCompleto += "  🔧 GBot Launcher v" + VERSAO_ATUAL + "\n";
+        logCompleto += "  🔧 GBot Launcher v" + VERSAO_ATUAL + " (Atualização Obrigatória)\n";
         logCompleto += "═══════════════════════════════════════════════════════\n";
         
         var clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
@@ -1010,6 +1064,14 @@ function iniciar() {
     if (st.executando) return;
     if (st.monitorAtivo) {
         toast("⏳ Monitor já ativo!");
+        return;
+    }
+    
+    // Verifica se há atualização pendente
+    if (st.atualizacaoPendente) {
+        log("⚠️ Atualização pendente! Atualize o Launcher primeiro.", 'force');
+        status("⚠️ Atualização obrigatória pendente!", "#ff4444");
+        toast("⚠️ Atualize o Launcher primeiro!");
         return;
     }
     
@@ -1038,13 +1100,13 @@ function iniciar() {
 }
 
 // ============================================
-// UI CORRIGIDA
+// UI
 // ============================================
 
 ui.layout(
     <vertical bg="#1a1a2e" padding="16">
         <text text="🔐 GBot Launcher" textSize="22" textColor="#00b4d8" textStyle="bold" gravity="center"/>
-        <text text={ "v" + VERSAO_ATUAL + " - Auto Update" } textSize="11" textColor="#90e0ef" gravity="center" marginBottom="12"/>
+        <text text={ "v" + VERSAO_ATUAL + " - Atualização Obrigatória" } textSize="11" textColor="#ff6b6b" gravity="center" marginBottom="12"/>
         
         <frame bg="#16213e" radius="8" padding="12" marginBottom="8">
             <vertical>
@@ -1059,7 +1121,7 @@ ui.layout(
         
         <horizontal marginBottom="8">
             <button id="btnIniciar" text="🚀 Iniciar GBot" bg="#0077b6" textColor="#ffffff" layout_weight="0.7" marginRight="4"/>
-            <button id="btnUpdate" text="🔄" bg="#2a2a4a" textColor="#ffffff" layout_weight="0.3" textSize="16"/>
+            <button id="btnUpdate" text="🔄" bg="#ff6b6b" textColor="#ffffff" layout_weight="0.3" textSize="16"/>
         </horizontal>
         
         <frame layout_weight="1" bg="#0a0a1a" radius="6" padding="6">
@@ -1123,9 +1185,50 @@ ui.serialText.setText("🔑 " + serialTemp);
 
 log("========================================", 'step');
 log("🔐 GBot Launcher v" + VERSAO_ATUAL + " pronto!", 'step');
+log("⚠️ ATUALIZAÇÕES SÃO OBRIGATÓRIAS", 'force');
 log("📱 Serial: " + serialTemp, 'info');
 log("🔐 Token: " + (st.token ? st.token.substring(0, 8) + "****" : "N/A"), 'token');
-log("🔄 Auto Update: ATIVO", 'update');
+log("🔄 Auto Update Obrigatório: ATIVO", 'update');
 log("========================================", 'step');
-status("✅ Clique em 'Iniciar GBot'", "#00ff00");
-toast("🔐 GBot Launcher v" + VERSAO_ATUAL + " pronto!");
+
+// Verifica atualização imediatamente ao iniciar
+status("⏳ Verificando atualizações obrigatórias...", "#ffaa00");
+verificarVersao(function(info, erro) {
+    if (erro || !info) {
+        log("⚠️ Falha na verificação inicial", 'update');
+        status("✅ Clique em 'Iniciar GBot'", "#00ff00");
+        return;
+    }
+    
+    if (info.atualizacaoDisponivel) {
+        log("⚠️ ATUALIZAÇÃO OBRIGATÓRIA DISPONÍVEL!", 'force');
+        status("⚠️ Atualização obrigatória disponível!", "#ff4444");
+        
+        // Desabilita o botão iniciar
+        ui.btnIniciar.setEnabled(false);
+        ui.btnIniciar.setText("⏳ Atualize!");
+        
+        dialogs.build({
+            title: "⚠️ ATUALIZAÇÃO OBRIGATÓRIA!",
+            content: "Uma nova versão do Launcher está disponível!\n\n" +
+                     "📌 Versão atual: " + VERSAO_ATUAL + "\n" +
+                     "🆕 Nova versão: " + info.versaoGitHub + "\n" +
+                     "📝 Changelog: " + info.changelog + "\n\n" +
+                     "🔒 A atualização é OBRIGATÓRIA para continuar.",
+            positive: "ATUALIZAR AGORA",
+            cancelable: false
+        }).on("positive", function() {
+            baixarEAtualizarObrigatorio();
+        }).show();
+    } else {
+        log("✅ Launcher atualizado (v" + VERSAO_ATUAL + ")", 'update');
+        status("✅ Clique em 'Iniciar GBot'", "#00ff00");
+        ui.btnIniciar.setEnabled(true);
+        ui.btnIniciar.setText("🚀 Iniciar GBot");
+    }
+});
+
+// Inicia o verificador em background
+iniciarVerificadorUpdateObrigatorio();
+
+toast("🔐 GBot Launcher v" + VERSAO_ATUAL + " - Atualização Obrigatória");
