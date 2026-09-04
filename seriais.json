@@ -1,1 +1,22 @@
-{"versao":"1.0","ultima_atualizacao":"2026-09-03T23:00:00-03:00","seriais":[{"id":1,"serial":"F92DD2EE4BCA8D4C","nome":"A14","validade":"3000-12-31","ativo":true,"observacao":"Dispositivo Niel"},{"id":2,"serial":"138254A5AF32E916","nome":"A15","validade":"3000-12-31","ativo":true,"observacao":"Dispositivo Noemi"}]}
+{
+  "versao": "1.0",
+  "ultima_atualizacao": "2026-09-03T23:00:00-03:00",
+  "seriais": [
+    {
+      "id": 1,
+      "serial": "F82DD2EE4BCA8D4C",
+      "nome": "A14",
+      "validade": "3000-12-31",
+      "ativo": true,
+      "observacao": "Dispositivo Niel"
+    },
+    {
+      "id": 2,
+      "serial": "138254A5AF32E916",
+      "nome": "A15",
+      "validade": "3000-12-31",
+      "ativo": true,
+      "observacao": "Dispositivo Noemi"
+    }
+  ]
+}
