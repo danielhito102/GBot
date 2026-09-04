@@ -1,0 +1,7 @@
+{
+  "versao": "2.0.1",
+  "hash": "A1B2C3D4E5F67890...", // SHA-256 do launcher.js
+  "changelog": "Correção de bugs e melhorias no monitor",
+  "obrigatorio": false,
+  "data": "2026-09-03"
+}
