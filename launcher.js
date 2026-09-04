@@ -1,6 +1,6 @@
 // ============================================
 // 🚀 GBot Launcher - AutoJS6
-// VERSÃO CORRIGIDA - SEM NetworkOnMainThreadException
+// VERSÃO COM AUTO UPDATE + TOKEN ROTATIVO + VALIDAÇÃO SHA
 // ============================================
 
 "ui";
@@ -9,11 +9,17 @@
 // CONFIGURAÇÕES
 // ============================================
 
+// VERSÃO ATUAL DO LAUNCHER (ATUALIZE QUANDO MUDAR)
+var VERSAO_ATUAL = "2.0.0";
+
+// Configurações do GitHub
 var GITHUB_TOKEN = "";
 var OWNER = "danielhito102";
 var REPO = "GBot";
 
 // URLs
+var URL_LAUNCHER_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/main/launcher.js";
+var URL_LAUNCHER_API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/launcher.js";
 var URL_SERIAL_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/main/seriais.json";
 var URL_SERIAL_API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/seriais.json";
 var URL_DEVICES_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/main/devices.json";
@@ -21,14 +27,16 @@ var URL_DEVICES_API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/c
 var URL_REGISTRO_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/main/registro.json";
 var URL_REGISTRO_API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/registro.json";
 var URL_GBOT_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/main/GBot.js";
+var URL_VERSAO_RAW = "https://raw.githubusercontent.com/" + OWNER + "/" + REPO + "/main/version.json";
 
 // ============================================
-// CONFIGURAÇÕES DE MONITORAMENTO
+// CONFIGURAÇÕES
 // ============================================
 
 var MONITOR_INTERVALO = 500;
 var TIMEOUT_REQ = 5000;
 var MAX_FALHAS = 3;
+var CHECK_UPDATE_INTERVAL = 60000; // Verifica atualizações a cada 60 segundos
 
 // ============================================
 // ESTADO
@@ -48,11 +56,15 @@ var st = {
     dadosSeriais: null,
     monitorAtivo: false,
     threadMonitor: null,
+    threadUpdate: null,
     falhasConsecutivas: 0,
     ultimoSHA: null,
     dadosCache: null,
     revogado: false,
-    gbotProcesso: null
+    gbotProcesso: null,
+    token: null,
+    tokenExpiracao: null,
+    hashLauncher: null
 };
 
 // ============================================
@@ -91,6 +103,8 @@ function log(m, t) {
     else if (t === 'revoke') ic = "[🚫REV]";
     else if (t === 'kill') ic = "[💀KILL]";
     else if (t === 'sha') ic = "[🔑SHA]";
+    else if (t === 'update') ic = "[🔄UPDATE]";
+    else if (t === 'token') ic = "[🔐TOKEN]";
     
     var e = "[" + d + "] " + ic + " " + m + "\n";
     st.trace.push(e);
@@ -117,7 +131,259 @@ function status(msg, cor) {
 }
 
 // ============================================
-// REQUISIÇÃO SEGURA (SEMPRE EM THREAD)
+// 1️⃣ SISTEMA DE TOKEN ROTATIVO
+// ============================================
+
+function gerarToken() {
+    try {
+        var data = new Date().toISOString().split('T')[0]; // Apenas data (YYYY-MM-DD)
+        var hora = new Date().getHours();
+        var base = st.serial + data + hora + "GBOT_SALT_2026_SECURE";
+        
+        var md = java.security.MessageDigest.getInstance("SHA-256");
+        var bytes = md.digest(new java.lang.String(base).getBytes("UTF-8"));
+        var token = "";
+        for (var i = 0; i < bytes.length; i++) {
+            var hex = java.lang.Integer.toHexString(bytes[i] & 0xFF);
+            if (hex.length() === 1) hex = "0" + hex;
+            token += hex;
+        }
+        token = token.substring(0, 32).toUpperCase();
+        
+        st.token = token;
+        st.tokenExpiracao = new Date().getTime() + (60 * 60 * 1000); // Expira em 1 hora
+        
+        log("🔐 Token gerado: " + token.substring(0, 8) + "****", 'token');
+        return token;
+    } catch(e) {
+        log("❌ Erro ao gerar token: " + e.message, 'err');
+        return null;
+    }
+}
+
+function validarToken(token) {
+    if (!token) return false;
+    if (!st.token) return false;
+    
+    // Verifica se o token expirou
+    if (st.tokenExpiracao && new Date().getTime() > st.tokenExpiracao) {
+        log("⏰ Token expirado, gerando novo...", 'token');
+        return false;
+    }
+    
+    return token === st.token;
+}
+
+function renovarToken() {
+    var novoToken = gerarToken();
+    log("🔄 Token renovado", 'token');
+    return novoToken;
+}
+
+// ============================================
+// 2️⃣ VALIDAÇÃO DE INTEGRIDADE (SHA-256)
+// ============================================
+
+function calcularSHA256(conteudo) {
+    try {
+        var md = java.security.MessageDigest.getInstance("SHA-256");
+        var bytes = md.digest(new java.lang.String(conteudo).getBytes("UTF-8"));
+        var hash = "";
+        for (var i = 0; i < bytes.length; i++) {
+            var hex = java.lang.Integer.toHexString(bytes[i] & 0xFF);
+            if (hex.length() === 1) hex = "0" + hex;
+            hash += hex;
+        }
+        return hash.toUpperCase();
+    } catch(e) {
+        log("❌ Erro ao calcular SHA: " + e.message, 'err');
+        return null;
+    }
+}
+
+function validarIntegridade(conteudo, hashEsperado) {
+    if (!conteudo || !hashEsperado) {
+        log("⚠️ Dados insuficientes para validação", 'warn');
+        return false;
+    }
+    
+    var hashCalculado = calcularSHA256(conteudo);
+    if (!hashCalculado) return false;
+    
+    var valido = hashCalculado === hashEsperado.toUpperCase();
+    
+    if (valido) {
+        log("✅ Integridade verificada (SHA-256)", 'security');
+        log("🔑 Hash: " + hashCalculado.substring(0, 16) + "...", 'debug');
+    } else {
+        log("❌ INTEGRIDADE COMPROMETIDA!", 'security');
+        log("📌 Esperado: " + hashEsperado.substring(0, 16) + "...", 'debug');
+        log("📌 Calculado: " + hashCalculado.substring(0, 16) + "...", 'debug');
+    }
+    
+    return valido;
+}
+
+// ============================================
+// 3️⃣ AUTO UPDATE SYSTEM
+// ============================================
+
+function verificarVersao(callback) {
+    log("🔄 Verificando atualizações...", 'update');
+    
+    httpGetAsync(URL_VERSAO_RAW, { 'User-Agent': 'GBot/1.0' }, function(err, response) {
+        if (err || !response || response.statusCode !== 200) {
+            log("⚠️ Falha ao verificar versão", 'update');
+            if (callback) callback(null, "Erro na requisição");
+            return;
+        }
+        
+        try {
+            var data = JSON.parse(response.body.string());
+            var versaoGitHub = data.versao || "0.0.0";
+            var hashLauncher = data.hash || null;
+            var changelog = data.changelog || "N/A";
+            var obrigatorio = data.obrigatorio || false;
+            
+            log("📌 Versão GitHub: " + versaoGitHub, 'update');
+            log("📌 Versão Local: " + VERSAO_ATUAL, 'update');
+            
+            // Armazena o hash para validação
+            st.hashLauncher = hashLauncher;
+            
+            if (callback) callback({
+                versaoAtual: VERSAO_ATUAL,
+                versaoGitHub: versaoGitHub,
+                hash: hashLauncher,
+                changelog: changelog,
+                obrigatorio: obrigatorio,
+                atualizacaoDisponivel: compararVersoes(VERSAO_ATUAL, versaoGitHub) < 0
+            }, null);
+            
+        } catch(e) {
+            log("❌ Erro ao parsear version.json: " + e.message, 'err');
+            if (callback) callback(null, "Erro no JSON");
+        }
+    });
+}
+
+function compararVersoes(v1, v2) {
+    var p1 = v1.split('.').map(Number);
+    var p2 = v2.split('.').map(Number);
+    
+    for (var i = 0; i < Math.max(p1.length, p2.length); i++) {
+        var n1 = p1[i] || 0;
+        var n2 = p2[i] || 0;
+        if (n1 < n2) return -1;
+        if (n1 > n2) return 1;
+    }
+    return 0;
+}
+
+function baixarAtualizacao(callback) {
+    log("📥 Baixando nova versão do Launcher...", 'update');
+    
+    httpGetAsync(URL_LAUNCHER_RAW, { 'User-Agent': 'GBot/1.0' }, function(err, response) {
+        if (err || !response || response.statusCode !== 200) {
+            log("❌ Falha ao baixar atualização!", 'update');
+            if (callback) callback(null, "Erro no download");
+            return;
+        }
+        
+        var script = response.body.string();
+        
+        if (!script || script.length < 100) {
+            log("❌ Script baixado é inválido!", 'update');
+            if (callback) callback(null, "Script inválido");
+            return;
+        }
+        
+        // Valida integridade antes de atualizar
+        if (st.hashLauncher) {
+            if (!validarIntegridade(script, st.hashLauncher)) {
+                log("❌ Falha na validação de integridade!", 'update');
+                if (callback) callback(null, "Falha na integridade");
+                return;
+            }
+        }
+        
+        log("✅ Atualização baixada com sucesso! " + script.length + " caracteres", 'update');
+        if (callback) callback(script, null);
+    });
+}
+
+function aplicarAtualizacao(script) {
+    if (!script) {
+        log("❌ Script vazio, não é possível atualizar", 'update');
+        return;
+    }
+    
+    log("🔄 Aplicando atualização...", 'update');
+    status("⏳ Atualizando Launcher...", "#ffaa00");
+    
+    try {
+        // Salva o script atualizado
+        var tempFile = "/sdcard/launcher_update.js";
+        var writer = new java.io.FileWriter(tempFile);
+        writer.write(script);
+        writer.close();
+        
+        log("📁 Arquivo salvo: " + tempFile, 'update');
+        
+        // Verifica novamente a integridade
+        var fileContent = script;
+        if (st.hashLauncher) {
+            if (!validarIntegridade(fileContent, st.hashLauncher)) {
+                log("❌ Arquivo baixado corrompido!", 'update');
+                toast("❌ Falha na integridade!");
+                return;
+            }
+        }
+        
+        // Para o monitor atual
+        st.monitorAtivo = false;
+        if (st.threadMonitor) {
+            try { st.threadMonitor.interrupt(); } catch(e) {}
+            st.threadMonitor = null;
+        }
+        if (st.threadUpdate) {
+            try { st.threadUpdate.interrupt(); } catch(e) {}
+            st.threadUpdate = null;
+        }
+        
+        // Executa o novo launcher
+        log("🚀 Executando novo Launcher...", 'update');
+        status("🔄 Reiniciando...", "#ffaa00");
+        
+        // Salva como o arquivo principal
+        var mainFile = "/sdcard/launcher_main.js";
+        var writer2 = new java.io.FileWriter(mainFile);
+        writer2.write(script);
+        writer2.close();
+        
+        // Executa o novo script
+        var result = engines.execScriptFile(mainFile, {
+            name: "GBot Launcher v" + VERSAO_ATUAL,
+            executionMode: "ui"
+        });
+        
+        log("✅ Atualização aplicada com sucesso!", 'update');
+        status("✅ Launcher atualizado!", "#00ff00");
+        toast("🔄 Launcher atualizado! Reiniciando...");
+        
+        // Fecha o launcher atual após 2 segundos
+        sleep(2000);
+        exit();
+        
+    } catch(e) {
+        log("❌ Erro ao aplicar atualização: " + e.message, 'err');
+        status("❌ Falha na atualização!", "#ff4444");
+        toast("❌ Erro ao atualizar!");
+    }
+}
+
+// ============================================
+// REQUISIÇÃO ASSÍNCRONA
 // ============================================
 
 function httpGetAsync(url, headers, callback) {
@@ -138,12 +404,11 @@ function httpGetAsync(url, headers, callback) {
     });
 }
 
-function httpHeadAsync(url, headers, callback) {
+function httpPutAsync(url, data, headers, callback) {
     threads.start(function() {
         try {
-            var response = http.request(url, { 
-                method: "HEAD", 
-                headers: headers || {},
+            var response = http.put(url, data, { 
+                headers: headers || {}, 
                 timeout: TIMEOUT_REQ 
             });
             ui.run(function() { 
@@ -208,11 +473,15 @@ function getSerial() {
     serial = serial.toUpperCase();
     st.serialOriginal = serial;
     log("🔑 Serial final: " + serial, 'serial');
+    
+    // Gera token após obter serial
+    gerarToken();
+    
     return serial;
 }
 
 // ============================================
-// BUSCAR SERIAIS (ASSÍNCRONO)
+// BUSCAR SERIAIS
 // ============================================
 
 function buscarSeriais(callback) {
@@ -296,7 +565,6 @@ function processarSeriais(dados, callback) {
         
         if (serialGit) {
             var serialGitNorm = normalizarSerial(serialGit);
-            log("📌 Comparando: " + serialGitNorm + " == " + serialLocal, 'debug');
             
             if (serialGitNorm === serialLocal) {
                 encontrado = true;
@@ -311,15 +579,6 @@ function processarSeriais(dados, callback) {
     
     if (!encontrado) {
         log("❌ SERIAL NÃO ENCONTRADO!", 'revoke');
-        log("💡 Serial do dispositivo: " + serialLocal, 'security');
-        log("📝 Seriais disponíveis:", 'debug');
-        for (var i = 0; i < lista.length; i++) {
-            var item = lista[i];
-            var serialGit = (typeof item === 'object') ? item.serial : (Array.isArray(item) ? item[1] : null);
-            if (serialGit) {
-                log("   - " + normalizarSerial(serialGit), 'debug');
-            }
-        }
         if (callback) callback(false, "Serial não autorizado");
         return;
     }
@@ -354,6 +613,97 @@ function processarSeriais(dados, callback) {
 }
 
 // ============================================
+// SISTEMA DE AUTO UPDATE (RODANDO EM BACKGROUND)
+// ============================================
+
+function iniciarVerificadorUpdate() {
+    if (st.threadUpdate) {
+        log("⚠️ Verificador de update já está rodando", 'update');
+        return;
+    }
+    
+    log("========================================", 'update');
+    log("🔄 INICIANDO VERIFICADOR DE UPDATE", 'update');
+    log("⏱️ Intervalo: " + (CHECK_UPDATE_INTERVAL/1000) + "s", 'update');
+    log("========================================", 'update');
+    
+    st.threadUpdate = threads.start(function() {
+        var primeiroCheck = true;
+        
+        while (st.monitorAtivo && !st.revogado) {
+            try {
+                // Verifica a cada intervalo
+                sleep(CHECK_UPDATE_INTERVAL);
+                
+                ui.run(function() {
+                    if (!st.monitorAtivo || st.revogado) return;
+                    
+                    verificarVersao(function(info, erro) {
+                        if (erro || !info) {
+                            log("⚠️ Falha ao verificar versão", 'update');
+                            return;
+                        }
+                        
+                        if (info.atualizacaoDisponivel) {
+                            log("🆕 Nova versão disponível: " + info.versaoGitHub, 'update');
+                            log("📝 Changelog: " + info.changelog, 'update');
+                            
+                            // Se for obrigatório ou usuário quiser atualizar
+                            if (info.obrigatorio) {
+                                log("⚠️ Atualização OBRIGATÓRIA!", 'update');
+                                status("🔄 Atualização obrigatória!", "#ffaa00");
+                                baixarEAtualizar();
+                            } else {
+                                // Pergunta se quer atualizar
+                                dialogs.build({
+                                    title: "🔄 Nova Versão Disponível!",
+                                    content: "Versão " + info.versaoGitHub + " disponível\n\n" +
+                                             "Versão atual: " + VERSAO_ATUAL + "\n" +
+                                             "Changelog: " + info.changelog + "\n\n" +
+                                             "Deseja atualizar agora?",
+                                    positive: "SIM",
+                                    negative: "Depois"
+                                }).on("positive", function() {
+                                    baixarEAtualizar();
+                                }).show();
+                            }
+                        } else {
+                            if (primeiroCheck) {
+                                log("✅ Launcher está atualizado (v" + VERSAO_ATUAL + ")", 'update');
+                                primeiroCheck = false;
+                            }
+                        }
+                    });
+                });
+                
+            } catch(e) {
+                log("❌ Erro no verificador: " + e.message, 'update');
+                sleep(5000);
+            }
+        }
+    });
+    
+    log("✅ Verificador de update iniciado!", 'update');
+}
+
+function baixarEAtualizar() {
+    log("📥 Baixando atualização...", 'update');
+    status("⏳ Baixando nova versão...", "#ffaa00");
+    
+    baixarAtualizacao(function(script, erro) {
+        if (erro || !script) {
+            log("❌ Falha ao baixar: " + erro, 'update');
+            toast("❌ Falha ao atualizar!");
+            status("❌ Falha na atualização!", "#ff4444");
+            return;
+        }
+        
+        // Aplica a atualização (fecha o launcher atual)
+        aplicarAtualizacao(script);
+    });
+}
+
+// ============================================
 // MONITORAMENTO
 // ============================================
 
@@ -376,7 +726,6 @@ function iniciarMonitoramento() {
     st.monitorAtivo = true;
     var falhas = 0;
     var contador = 0;
-    var ultimoSerialVerificado = null;
     
     st.threadMonitor = threads.start(function() {
         while (st.monitorAtivo && !st.revogado) {
@@ -388,10 +737,7 @@ function iniciarMonitoramento() {
                 httpGetAsync(URL_SERIAL_RAW, { 'User-Agent': 'GBot/1.0' }, function(err, response) {
                     if (err || !response || response.statusCode !== 200) {
                         falhas++;
-                        log("⚠️ Falha " + falhas + "/" + MAX_FALHAS, 'monitor');
                         if (falhas >= MAX_FALHAS) {
-                            log("🚨 Muitas falhas!", 'monitor');
-                            // Não revoga por falha de rede, apenas alerta
                             falhas = 0;
                         }
                         return;
@@ -421,8 +767,10 @@ function iniciarMonitoramento() {
                         }
                         
                         falhas = 0;
-                        if (contador % 10 === 0) {
-                            log("📡 Monitor OK (" + contador + ")", 'monitor');
+                        
+                        // Verifica e renova token se necessário
+                        if (st.tokenExpiracao && new Date().getTime() > st.tokenExpiracao - 300000) {
+                            renovarToken();
                         }
                         
                     } catch(e) {
@@ -442,6 +790,9 @@ function iniciarMonitoramento() {
             }
         }
     });
+    
+    // Inicia o verificador de updates
+    iniciarVerificadorUpdate();
     
     log("✅ Monitor iniciado!", 'monitor');
 }
@@ -466,7 +817,12 @@ function revogarAcesso(motivo) {
         try { st.threadMonitor.interrupt(); } catch(e) {}
         st.threadMonitor = null;
     }
+    if (st.threadUpdate) {
+        try { st.threadUpdate.interrupt(); } catch(e) {}
+        st.threadUpdate = null;
+    }
     
+    // Mata o GBot
     try {
         var scripts = engines.all();
         for (var i = 0; i < scripts.length; i++) {
@@ -501,6 +857,41 @@ function revogarAcesso(motivo) {
 }
 
 // ============================================
+// VERIFICAR ATUALIZAÇÃO MANUAL
+// ============================================
+
+function verificarUpdateManual() {
+    log("🔄 Verificando atualizações manualmente...", 'update');
+    status("⏳ Verificando...", "#ffaa00");
+    
+    verificarVersao(function(info, erro) {
+        if (erro || !info) {
+            log("❌ Falha ao verificar versão", 'update');
+            toast("❌ Falha ao verificar!");
+            status("❌ Erro na verificação", "#ff4444");
+            return;
+        }
+        
+        if (info.atualizacaoDisponivel) {
+            dialogs.build({
+                title: "🔄 Nova Versão Disponível!",
+                content: "Versão " + info.versaoGitHub + " disponível\n\n" +
+                         "Versão atual: " + VERSAO_ATUAL + "\n" +
+                         "Changelog: " + info.changelog + "\n\n" +
+                         "Deseja atualizar agora?",
+                positive: "SIM",
+                negative: "Depois"
+            }).on("positive", function() {
+                baixarEAtualizar();
+            }).show();
+        } else {
+            toast("✅ Launcher está atualizado (v" + VERSAO_ATUAL + ")");
+            status("✅ Atualizado!", "#00ff00");
+        }
+    });
+}
+
+// ============================================
 // REGISTROS
 // ============================================
 
@@ -514,64 +905,6 @@ function getDeviceInfo() {
         if (ip) info.ip = (ip & 0xFF) + "." + ((ip >> 8) & 0xFF) + "." + ((ip >> 16) & 0xFF) + "." + ((ip >> 24) & 0xFF);
     } catch(e) {}
     return info;
-}
-
-function registrarDevice(cb) {
-    log("📡 Registrando...", 'step');
-    var info = getDeviceInfo();
-    
-    httpGetAsync(URL_DEVICES_RAW, { 'User-Agent': 'GBot/1.0' }, function(e, r) {
-        var devices = [];
-        if (!e && r && r.statusCode === 200) {
-            try { devices = JSON.parse(r.body.string()).devices || []; } catch(e) {}
-        }
-        
-        var exists = false;
-        for (var i = 0; i < devices.length; i++) {
-            if (devices[i].serial === st.serial) {
-                exists = true;
-                devices[i].ultimo_acesso = new Date().toISOString();
-                break;
-            }
-        }
-        
-        if (!exists) {
-            devices.push({
-                serial: st.serial,
-                androidId: st.androidId,
-                modelo: info.modelo,
-                usuario: st.user || "N/A",
-                data_registro: new Date().toISOString(),
-                ativo: true
-            });
-        }
-        
-        try {
-            var jc = JSON.stringify({ devices: devices }, null, 2);
-            var enc = android.util.Base64.encodeToString(new java.lang.String(jc).getBytes("UTF-8"), android.util.Base64.NO_WRAP);
-            var p = { message: "Auto update", content: enc, branch: "main" };
-            var headers = { 'User-Agent': 'GBot/1.0', 'Accept': 'application/vnd.github.v3+json', 'Authorization': 'token ' + GITHUB_TOKEN, 'Content-Type': 'application/json' };
-            
-            threads.start(function() {
-                try {
-                    var response = http.put(URL_DEVICES_API, JSON.stringify(p), { headers: headers, timeout: TIMEOUT_REQ });
-                    if (response && (response.statusCode === 200 || response.statusCode === 201)) {
-                        log("✅ devices.json atualizado", 'ok');
-                        if (cb) cb(true);
-                    } else {
-                        log("⚠️ Falha devices.json", 'warn');
-                        if (cb) cb(false);
-                    }
-                } catch(e) {
-                    log("⚠️ Erro: " + e.message, 'warn');
-                    if (cb) cb(false);
-                }
-            });
-        } catch(e) {
-            log("⚠️ Erro: " + e.message, 'warn');
-            if (cb) cb(false);
-        }
-    });
 }
 
 // ============================================
@@ -660,7 +993,9 @@ function copiarLogCompleto() {
         logCompleto += "  📊 Seriais na Lista: " + st.seriaisLista.length + "\n";
         logCompleto += "  📱 Modelo: " + (info.modelo || "N/A") + "\n";
         logCompleto += "  🤖 Android: " + (info.android || "N/A") + "\n";
-        logCompleto += "  🌐 IP: " + (info.ip || "N/A") + "\n\n";
+        logCompleto += "  🌐 IP: " + (info.ip || "N/A") + "\n";
+        logCompleto += "  🔐 Token: " + (st.token ? st.token.substring(0, 8) + "****" : "N/A") + "\n";
+        logCompleto += "  📌 Versão Launcher: " + VERSAO_ATUAL + "\n\n";
         
         logCompleto += "📌 LISTA DE SERIAIS (GitHub)\n";
         logCompleto += "───────────────────────────────────────────────────────\n";
@@ -692,6 +1027,7 @@ function copiarLogCompleto() {
         
         logCompleto += "\n═══════════════════════════════════════════════════════\n";
         logCompleto += "  📋 Log gerado em: " + agora.toLocaleString('pt-BR') + "\n";
+        logCompleto += "  🔧 GBot Launcher v" + VERSAO_ATUAL + "\n";
         logCompleto += "═══════════════════════════════════════════════════════\n";
         
         var clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
@@ -735,7 +1071,6 @@ function iniciar() {
             return;
         }
         
-        registrarDevice(function() {});
         carregarEExecutarGBot();
         
         ui.btnIniciar.setText("⏳ Monitorando");
@@ -751,7 +1086,7 @@ function iniciar() {
 ui.layout(
     <vertical bg="#1a1a2e" padding="16">
         <text text="🔐 GBot Launcher" textSize="22" textColor="#00b4d8" textStyle="bold" gravity="center"/>
-        <text text="Monitor" textSize="11" textColor="#90e0ef" gravity="center" marginBottom="12"/>
+        <text text="v" + VERSAO_ATUAL + " - Auto Update" textSize="11" textColor="#90e0ef" gravity="center" marginBottom="12"/>
         
         <frame bg="#16213e" radius="8" padding="12" marginBottom="8">
             <vertical>
@@ -764,7 +1099,10 @@ ui.layout(
             </vertical>
         </frame>
         
-        <button id="btnIniciar" text="🚀 Iniciar GBot" bg="#0077b6" textColor="#ffffff" marginBottom="8"/>
+        <horizontal marginBottom="8">
+            <button id="btnIniciar" text="🚀 Iniciar GBot" bg="#0077b6" textColor="#ffffff" layout_weight="0.7" marginRight="4"/>
+            <button id="btnUpdate" text="🔄" bg="#2a2a4a" textColor="#ffffff" layout_weight="0.3" textSize="16"/>
+        </horizontal>
         
         <frame layout_weight="1" bg="#0a0a1a" radius="6" padding="6">
             <vertical>
@@ -797,6 +1135,10 @@ ui.btnIniciar.click(function() {
     iniciar(); 
 });
 
+ui.btnUpdate.click(function() { 
+    verificarUpdateManual(); 
+});
+
 ui.btnCopiarLog.click(function() { 
     copiarLogCompleto(); 
 });
@@ -806,6 +1148,7 @@ ui.btnSair.click(function() {
         st.monitorAtivo = false;
         st.revogado = true;
         if (st.threadMonitor) try { st.threadMonitor.interrupt(); } catch(e) {}
+        if (st.threadUpdate) try { st.threadUpdate.interrupt(); } catch(e) {}
         exit();
     }
 });
@@ -821,8 +1164,10 @@ var serialTemp = getSerial();
 ui.serialText.setText("🔑 " + serialTemp);
 
 log("========================================", 'step');
-log("🔐 GBot Launcher pronto!", 'step');
+log("🔐 GBot Launcher v" + VERSAO_ATUAL + " pronto!", 'step');
 log("📱 Serial: " + serialTemp, 'info');
+log("🔐 Token: " + (st.token ? st.token.substring(0, 8) + "****" : "N/A"), 'token');
+log("🔄 Auto Update: ATIVO", 'update');
 log("========================================", 'step');
 status("✅ Clique em 'Iniciar GBot'", "#00ff00");
-toast("🔐 GBot Launcher pronto!");
+toast("🔐 GBot Launcher v" + VERSAO_ATUAL + " pronto!");
