@@ -18,5 +18,13 @@
       "ativo": true,
       "observacao": "Dispositivo Noemi"
     }
+{
+      "id": 3,
+      "serial": "ADE00D85C271AF03",
+      "nome": "A15",
+      "validade": "3000-12-31",
+      "ativo": true,
+      "observacao": "Dispositivo Noemi"
+    }
   ]
 }
